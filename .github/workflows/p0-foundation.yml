@@ -38,5 +38,7 @@ jobs:
         run: npm install
       - working-directory: web-client
         run: npm run build
-      - name: Assert server-hosted web output
-        run: test -f src/InterLan.Server/wwwroot/client/index.html
+      - name: Test web output verification
+        run: node --test tools/InterLan.WebAssetChecks/verify.test.mjs
+      - name: Assert bundled server-hosted web assets
+        run: node tools/InterLan.WebAssetChecks/verify.mjs src/InterLan.Server/wwwroot/client
