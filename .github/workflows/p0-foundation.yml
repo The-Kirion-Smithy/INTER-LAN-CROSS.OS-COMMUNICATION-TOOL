@@ -37,6 +37,8 @@ jobs:
       - working-directory: web-client
         run: npm install
       - working-directory: web-client
+        run: npm run test --if-present
+      - working-directory: web-client
         run: npm run build
       - name: Test web output verification
         run: node --test tools/InterLan.WebAssetChecks/verify.test.mjs
