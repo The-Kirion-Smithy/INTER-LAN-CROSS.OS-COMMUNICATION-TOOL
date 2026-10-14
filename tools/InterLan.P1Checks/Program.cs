@@ -405,8 +405,8 @@ try
     Check(reopenedIdentity == owner, "restart preserves canonical server identity");
 
     var logoutSession = await store.LoginOwnerAsync(
-        "owner1",
-        "owner-password-123",
+        "kirch",
+        "correct horse battery staple",
         TimeSpan.FromHours(1));
 
     await store.RevokeOwnSessionAsync(
