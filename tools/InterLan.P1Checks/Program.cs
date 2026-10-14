@@ -346,9 +346,10 @@ try
             TimeSpan.FromHours(1)));
     Check(renewalAfterRevokeRejected, "revoked device credential cannot mint a new session");
 
+    // Exercise concurrent sessions for the owner actually bootstrapped above.
     var extraOwnerSession = await store.LoginOwnerAsync(
-        "owner1",
-        "owner-password-123",
+        "kirch",
+        "correct horse battery staple",
         TimeSpan.FromHours(1));
 
     var revokedOthers = await store.RevokeOtherSessionsAsync(
