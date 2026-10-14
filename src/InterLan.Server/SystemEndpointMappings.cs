@@ -18,11 +18,14 @@ public static class SystemEndpointMappings
         }));
 
         endpoints.MapGet("/api/v1/server/info", async (
+            HttpContext context,
             IServerIdentityStore identities,
             ServerRuntimeSettings settings,
             ServerCertificateDescriptor certificate,
             CancellationToken cancellationToken) =>
         {
+            // Owner identity and pairing fingerprint must never be served from a cache.
+            context.Response.Headers["Cache-Control"] = "no-store";
             var identity = await identities.GetAsync(cancellationToken);
 
             return Results.Ok(new
