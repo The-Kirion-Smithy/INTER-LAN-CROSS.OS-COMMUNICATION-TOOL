@@ -453,7 +453,7 @@ public sealed class ChatStore(SqliteDatabase database)
             cancellationToken);
 
         var now = DateTimeOffset.UtcNow;
-        var mutedUntil = request.MutedUntilUtc is { } requestedMute && requestedMute > now
+        DateTimeOffset? mutedUntil = request.MutedUntilUtc is { } requestedMute && requestedMute > now
             ? requestedMute
             : null;
 
