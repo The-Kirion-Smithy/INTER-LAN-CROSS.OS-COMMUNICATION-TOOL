@@ -4,6 +4,8 @@ using System.Net;
 using InterLan.Contracts;
 using InterLan.Infrastructure;
 
+var failures = new List<string>();
+
 var rateContextA = new DefaultHttpContext();
 rateContextA.Connection.RemoteIpAddress = IPAddress.Parse("192.168.10.20");
 var rateContextB = new DefaultHttpContext();
@@ -30,8 +32,6 @@ authRateContextB.Request.Headers.Authorization = "Bearer p2-rate-limit-token-b";
 Check(
     authPartition != RateLimitPartitionKeys.AuthenticatedClient(authRateContextB),
     "authenticated rate-limit partitions isolate distinct sessions");
-
-var failures = new List<string>();
 
 void Check(bool condition, string name)
 {
