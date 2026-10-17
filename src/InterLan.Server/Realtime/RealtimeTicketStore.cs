@@ -23,8 +23,17 @@ public sealed class RealtimeTicketStore
         if (lifetime <= TimeSpan.Zero || lifetime > TimeSpan.FromMinutes(2))
             throw new ArgumentOutOfRangeException(nameof(lifetime));
 
+        // A realtime ticket may not outlive its underlying authenticated
+        // session, even if the requested ticket lifetime would allow it.
+        var now = DateTimeOffset.UtcNow;
+        if (principal.ExpiresUtc <= now)
+            throw new UnauthorizedAccessException("Cannot issue a ticket for an expired session.");
+
         var ticket = SecretCodec.NewToken();
-        var expiresUtc = DateTimeOffset.UtcNow.Add(lifetime);
+        var expiresUtc = now.Add(lifetime);
+        if (expiresUtc > principal.ExpiresUtc)
+            expiresUtc = principal.ExpiresUtc;
+
         var hash = SecretCodec.HashToken(ticket);
 
         if (!_tickets.TryAdd(hash, new TicketEntry(principal, expiresUtc)))
