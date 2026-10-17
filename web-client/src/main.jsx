@@ -1,56 +1,86 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { fetchServerInfo } from "./serverInfo.js";
 import "./styles.css";
 
 function App() {
   const [server, setServer] = useState({ state: "checking" });
+  const [requestId, setRequestId] = useState(0);
 
   useEffect(() => {
-    fetch("/api/v1/server/info")
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
+    const controller = new AbortController();
+    setServer({ state: "checking" });
+
+    fetchServerInfo({ signal: controller.signal })
+      .then((data) => {
+        if (!controller.signal.aborted) setServer({ state: "ready", data });
       })
-      .then((data) => setServer({ state: "ready", data: { ...data, ...data.server } }))
-      .catch((error) => setServer({ state: "offline", error: String(error) }));
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          setServer({
+            state: "offline",
+            error: error instanceof Error ? error.message : "Status request failed.",
+          });
+        }
+      });
+
+    return () => controller.abort();
+  }, [requestId]);
+
+  // A network reconnection can restore the local owner without a page reload.
+  useEffect(() => {
+    const onOnline = () => setRequestId((id) => id + 1);
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, []);
+
+  const checking = server.state === "checking";
+  const offline = server.state === "offline";
+  const heading = checking
+    ? "Checking server"
+    : offline
+      ? "Server unavailable"
+      : server.data.serverName;
+
+  const detail = checking
+    ? "Reading /api/v1/server/info"
+    : offline
+      ? server.error
+      : `API ${server.data.apiVersion} · ${server.data.runtimeMode}`;
 
   return (
     <main className="shell">
-      <section className="hero">
+      <section className="hero" aria-labelledby="client-heading">
         <div className="eyebrow">INTER-LAN · WEB CLIENT</div>
-        <h1>Communication stays on your LAN.</h1>
+        <h1 id="client-heading">Communication stays on your LAN.</h1>
         <p className="lede">
           Android uses this responsive client. The owner machine remains the canonical server.
         </p>
 
-        <div className="status-card">
-          <span className={`dot ${server.state}`} />
-          <div>
-            <strong>
-              {server.state === "ready"
-                ? server.data.configured
-                  ? server.data.serverName
-                  : "Server not configured"
-                : server.state === "offline"
-                  ? "Server unavailable"
-                  : "Checking server"}
-            </strong>
-            <p>
-              {server.state === "ready"
-                ? `API ${server.data.apiVersion} · ${server.data.runtimeMode}`
-                : server.state === "offline"
-                  ? server.error
-                  : "Reading /api/v1/server/info"}
-            </p>
+        <div className="status-card" role="status" aria-live="polite" aria-atomic="true">
+          <span className={`dot ${server.state}`} aria-hidden="true" />
+          <div className="status-content">
+            <strong>{heading}</strong>
+            <p>{detail}</p>
+            {offline && (
+              <button
+                type="button"
+                className="retry-button"
+                onClick={() => setRequestId((id) => id + 1)}
+              >
+                Retry connection
+              </button>
+            )}
           </div>
         </div>
 
         <div className="actions">
-          <button disabled>Create Server</button>
-          <button disabled className="secondary">Join Server</button>
+          <button type="button" disabled>Create Server</button>
+          <button type="button" disabled className="secondary">Join Server</button>
         </div>
-        <small>P0 shell only. Enrollment and messaging are implemented in later bounded phases.</small>
+        <small>
+          Web client preview. Enrollment and messaging controls are not connected yet.
+        </small>
       </section>
     </main>
   );

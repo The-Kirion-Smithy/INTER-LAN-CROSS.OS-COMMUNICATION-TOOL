@@ -115,3 +115,18 @@ small {
   .shell { align-items: start; padding-top: 64px; }
   .actions { grid-template-columns: 1fr; }
 }
+
+/* Keep status errors and the recovery control usable on narrow screens. */
+.status-content { min-width: 0; }
+
+.retry-button {
+  min-height: 40px;
+  margin-top: 16px;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 3px;
+}
