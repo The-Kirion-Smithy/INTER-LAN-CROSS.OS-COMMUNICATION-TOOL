@@ -211,6 +211,15 @@ var baseUri = server.BaseUri;
     await using (var ticketHub = CreateTicketHub(baseUri, realtimeTicket))
     {
         await ticketHub.StartAsync();
+        // SignalR StartAsync alone is not evidence that OnConnectedAsync
+        // authorized this connection. Verify an actual hub invocation.
+        var firstPong = await ticketHub.InvokeAsync<JsonElement>("Ping")
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        if (firstPong.GetProperty("status").GetString() != "ok")
+        {
+            Console.Error.WriteLine("FAIL first-use realtime ticket did not authorize hub invocation");
+            return 1;
+        }
         await ticketHub.StopAsync();
     }
 
@@ -219,9 +228,13 @@ var baseUri = server.BaseUri;
     {
         try
         {
-            await replayHub.StartAsync();
+            // A WebSocket connection can appear started before an unauthorized
+            // hub abort becomes visible. Successful Ping is the access check.
+            await replayHub.StartAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await replayHub.InvokeAsync<JsonElement>("Ping")
+                .WaitAsync(TimeSpan.FromSeconds(5));
         }
-        catch
+        catch (Exception)
         {
             ticketReplayRejected = true;
         }
@@ -229,11 +242,11 @@ var baseUri = server.BaseUri;
 
     if (!ticketReplayRejected)
     {
-        Console.Error.WriteLine("FAIL realtime ticket replay was accepted");
+        Console.Error.WriteLine("FAIL replayed realtime ticket invoked an authenticated hub method");
         return 1;
     }
 
-    Console.WriteLine("PASS browser realtime ticket is single-use and bearer-free");
+    Console.WriteLine("PASS browser realtime ticket authorizes first use and denies replay");
 
     var dmResponse = await ownerHttp.PostAsJsonAsync("/api/v1/direct", new { otherUserId = memberUserId });
     if (!dmResponse.IsSuccessStatusCode)
