@@ -17,7 +17,14 @@ Console.WriteLine($"PASS TCP loopback 127.0.0.1:{server.BaseUri.Port}");
 using var client = server.CreateClient();
 Console.WriteLine($"PASS HTTPS Kestrel health endpoint via {server.BaseUri}");
 
-var before = await client.GetFromJsonAsync<JsonElement>("/api/v1/server/info");
+using var initialInfoResponse = await client.GetAsync("/api/v1/server/info");
+if (!initialInfoResponse.IsSuccessStatusCode ||
+    initialInfoResponse.Headers.CacheControl?.NoStore != true)
+{
+    Console.Error.WriteLine("FAIL unconfigured server info is cacheable or unavailable");
+    return 1;
+}
+var before = await initialInfoResponse.Content.ReadFromJsonAsync<JsonElement>();
 var beforeServer = before.GetProperty("server");
 if (beforeServer.GetProperty("configured").GetBoolean())
 {
@@ -67,7 +74,14 @@ if (duplicate.IsSuccessStatusCode)
 
 Console.WriteLine("PASS duplicate bootstrap fails closed");
 
-var after = await client.GetFromJsonAsync<JsonElement>("/api/v1/server/info");
+using var configuredInfoResponse = await client.GetAsync("/api/v1/server/info");
+if (!configuredInfoResponse.IsSuccessStatusCode ||
+    configuredInfoResponse.Headers.CacheControl?.NoStore != true)
+{
+    Console.Error.WriteLine("FAIL configured server info is cacheable or unavailable");
+    return 1;
+}
+var after = await configuredInfoResponse.Content.ReadFromJsonAsync<JsonElement>();
 if (!after.GetProperty("server").GetProperty("configured").GetBoolean())
 {
     Console.Error.WriteLine("FAIL configured server state not visible after bootstrap");
