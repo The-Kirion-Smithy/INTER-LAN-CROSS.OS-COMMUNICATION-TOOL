@@ -1,10 +1,59 @@
 using InterLan.Server;
+using InterLan.Server.Realtime;
+using InterLan.Application;
 using Microsoft.AspNetCore.Http;
 using System.Net;
 using InterLan.Contracts;
 using InterLan.Infrastructure;
 
 var failures = new List<string>();
+
+var ticketPrincipal = new SessionPrincipal(
+    Guid.NewGuid(), Guid.NewGuid(), null, "MEMBER",
+    DateTimeOffset.UtcNow.AddMinutes(5));
+var ticketStore = new RealtimeTicketStore();
+var singleUseTicket = ticketStore.Issue(ticketPrincipal, TimeSpan.FromSeconds(30));
+Check(
+    ticketStore.Consume(singleUseTicket.Ticket) == ticketPrincipal,
+    "realtime ticket authenticates exactly its issued principal");
+Check(
+    ticketStore.Consume(singleUseTicket.Ticket) is null,
+    "realtime ticket is rejected after first consumption");
+Check(
+    ticketStore.Consume("invalid-ticket") is null,
+    "unknown realtime ticket fails closed");
+
+var shortSessionPrincipal = ticketPrincipal with
+{
+    ExpiresUtc = DateTimeOffset.UtcNow.AddSeconds(4)
+};
+var shortSessionTicket = ticketStore.Issue(
+    shortSessionPrincipal, TimeSpan.FromSeconds(30));
+Check(
+    shortSessionTicket.ExpiresUtc <= shortSessionPrincipal.ExpiresUtc,
+    "realtime ticket cannot outlive its parent session");
+
+var expiredPrincipalRejected = false;
+try
+{
+    _ = ticketStore.Issue(
+        ticketPrincipal with { ExpiresUtc = DateTimeOffset.UtcNow.AddSeconds(-1) },
+        TimeSpan.FromSeconds(30));
+}
+catch (UnauthorizedAccessException)
+{
+    expiredPrincipalRejected = true;
+}
+Check(expiredPrincipalRejected, "expired session cannot issue new realtime ticket");
+
+var concurrentTicket = ticketStore.Issue(ticketPrincipal, TimeSpan.FromSeconds(30));
+var concurrentConsumes = await Task.WhenAll(
+    Enumerable.Range(0, 24).Select(_ =>
+        Task.Run(() => ticketStore.Consume(concurrentTicket.Ticket))));
+Check(
+    concurrentConsumes.Count(principal => principal is not null) == 1,
+    "concurrent replay attempts authorize at most one consumer");
+
 
 var rateContextA = new DefaultHttpContext();
 rateContextA.Connection.RemoteIpAddress = IPAddress.Parse("192.168.10.20");
