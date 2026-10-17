@@ -61,3 +61,30 @@ test("rejects traversal out of the Vite assets prefix", (t) => {
   const html = validHtml.replace("/client/assets/index-b2.js", "/client/assets/../outside.js");
   assert.throws(() => verifyWebAssets(fixture(t, html)), /Invalid web asset path/);
 });
+
+
+test("rejects externally hosted JavaScript referenced by HTML", (t) => {
+  const html = validHtml.replace(
+    "/client/assets/index-b2.js",
+    "https://cdn.example.invalid/runtime.js",
+  );
+  assert.throws(() => verifyWebAssets(fixture(t, html)), /Unexpected script\/style origin/);
+});
+
+test("rejects externally hosted stylesheets", (t) => {
+  const html = validHtml.replace(
+    "/client/assets/index-a1.css",
+    "https://cdn.example.invalid/theme.css",
+  );
+  assert.throws(() => verifyWebAssets(fixture(t, html)), /Unexpected script\/style origin/);
+});
+
+test("rejects root-relative JS outside the bundled client directory", (t) => {
+  const html = validHtml.replace("/client/assets/index-b2.js", "/scripts/runtime.js");
+  assert.throws(() => verifyWebAssets(fixture(t, html)), /Unexpected script\/style origin/);
+});
+
+test("rejects protocol-relative script sources", (t) => {
+  const html = validHtml.replace("/client/assets/index-b2.js", "//cdn.example.invalid/x.js");
+  assert.throws(() => verifyWebAssets(fixture(t, html)), /Unexpected script\/style origin/);
+});
