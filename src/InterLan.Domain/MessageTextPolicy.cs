@@ -25,8 +25,7 @@ public static class MessageTextPolicy
         foreach (var rune in normalized.EnumerateRunes())
         {
             if (Rune.IsControl(rune) &&
-                rune.Value is not '	' and not '' and not '
-')
+                rune.Value is not '\t' and not '\r' and not '\n')
             {
                 throw new ArgumentException(
                     "Message body contains unsupported control characters.",
