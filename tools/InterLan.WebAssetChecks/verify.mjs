@@ -18,9 +18,15 @@ export function verifyWebAssets(outputDirectory) {
   const html = readFileSync(indexFile, "utf8");
   requireAsset(!html.includes("/src/main.jsx"), "Web entrypoint was not bundled");
 
-  const references = [...html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)]
-    .map((match) => match[1])
-    .filter((url) => url.startsWith("/client/assets/"));
+  const attributes = [...html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/gi)]
+    .map((match) => match[1]);
+  // A LAN client must not silently load scripts or styles from another origin
+  // or bypass the Vite bundle directory.
+  const executableAssets = attributes.filter((url) => /\.(?:js|css)(?:[?#]|$)/i.test(url));
+  for (const url of executableAssets) {
+    requireAsset(url.startsWith("/client/assets/"), `Unexpected script/style origin: ${url}`);
+  }
+  const references = attributes.filter((url) => url.startsWith("/client/assets/"));
 
   const scripts = references.filter((url) => /\.js(?:[?#]|$)/i.test(url));
   const styles = references.filter((url) => /\.css(?:[?#]|$)/i.test(url));
