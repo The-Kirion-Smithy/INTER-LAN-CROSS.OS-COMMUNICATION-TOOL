@@ -84,6 +84,36 @@ try
         null,
         new ClientRuntimeConfiguration("https://127.0.0.1:7443", null, "device"));
     Check(validClientConfig.Validate().Count == 0, "valid Client configuration passes");
+
+    Check(
+        MessageTextPolicy.Normalize("  cafe\u0301  ", 32) == "caf\u00e9",
+        "message text normalization preserves NFC");
+    Check(
+        MessageTextPolicy.Normalize("one\ttwo\nthree\rfour", 64) == "one\ttwo\nthree\rfour",
+        "message text allows interior tab, CR and LF");
+
+    var controlsRejected = false;
+    try
+    {
+        _ = MessageTextPolicy.Normalize("alpha\u0000beta", 64);
+    }
+    catch (ArgumentException)
+    {
+        controlsRejected = true;
+    }
+    Check(controlsRejected, "message text rejects NUL control characters");
+
+    var overLengthRejected = false;
+    try
+    {
+        _ = MessageTextPolicy.Normalize("message", 3);
+    }
+    catch (ArgumentException)
+    {
+        overLengthRejected = true;
+    }
+    Check(overLengthRejected, "message text enforces maximum length");
+
 }
 finally
 {
