@@ -26,6 +26,13 @@ internal sealed class OwnerPanel : UserControl, IDisposable
     private readonly TextBlock _invite = new() { TextWrapping = TextWrapping.Wrap };
     private readonly ListBox _pending = new() { Height = 144 };
     private readonly ListBox _devices = new() { Height = 124 };
+    private readonly ListBox _sessions = new() { Height = 110 };
+    private readonly TextBlock _settingsStatus = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBox _bindAddress = new() { Text = "0.0.0.0" };
+    private readonly TextBox _port = new() { Text = "7443" };
+    private readonly TextBox _storagePath = new();
+    private readonly CheckBox _discovery = new() { Content = "Advertise server on LAN" };
+    private readonly CheckBox _approvalRequired = new() { Content = "Require owner device approval" };
     private readonly Button _start = Button("Start owner server");
     private readonly Button _stop = Button("Stop server");
     private readonly Button _bootstrap = Button("Create the owner account");
@@ -35,6 +42,9 @@ internal sealed class OwnerPanel : UserControl, IDisposable
     private readonly Button _approve = Button("Approve selected request");
     private readonly Button _reject = Button("Reject selected request");
     private readonly Button _revokeDevice = Button("Revoke selected device");
+    private readonly Button _revokeSession = Button("Revoke selected owner session");
+    private readonly Button _loadSettings = Button("Load canonical server settings");
+    private readonly Button _saveSettings = Button("Save settings (restart may be required)");
     private HttpClient? _http;
     private bool _configured;
     private bool _authenticated;
@@ -75,6 +85,21 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         stack.Children.Add(Label("Registered devices (including revoked devices)"));
         stack.Children.Add(_devices);
         stack.Children.Add(_revokeDevice);
+        stack.Children.Add(Heading("Owner sign-in sessions"));
+        stack.Children.Add(_sessions);
+        stack.Children.Add(_revokeSession);
+        stack.Children.Add(Heading("Server settings (server is authoritative)"));
+        stack.Children.Add(_loadSettings);
+        stack.Children.Add(Label("Listener bind IP (restart required after change)"));
+        stack.Children.Add(_bindAddress);
+        stack.Children.Add(Label("HTTPS listener port"));
+        stack.Children.Add(_port);
+        stack.Children.Add(Label("Server file storage directory"));
+        stack.Children.Add(_storagePath);
+        stack.Children.Add(_discovery);
+        stack.Children.Add(_approvalRequired);
+        stack.Children.Add(_saveSettings);
+        stack.Children.Add(_settingsStatus);
 
         Content = new ScrollViewer { Content = stack };
         _start.Click += async (_, _) => await ExecuteAsync(StartAsync);
@@ -86,6 +111,9 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _approve.Click += async (_, _) => await ExecuteAsync(() => DecideAsync(true));
         _reject.Click += async (_, _) => await ExecuteAsync(() => DecideAsync(false));
         _revokeDevice.Click += async (_, _) => await ExecuteAsync(RevokeDeviceAsync);
+        _revokeSession.Click += async (_, _) => await ExecuteAsync(RevokeOwnerSessionAsync);
+        _loadSettings.Click += async (_, _) => await ExecuteAsync(LoadSettingsAsync);
+        _saveSettings.Click += async (_, _) => await ExecuteAsync(SaveSettingsAsync);
         SetControls();
         _status.Text = "Stopped. The existing data directory is reused after restart.";
     }
@@ -162,6 +190,8 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _invite.Text = "";
         _pending.ItemsSource = null;
         _devices.ItemsSource = null;
+        _sessions.ItemsSource = null;
+        _settingsStatus.Text = "";
         _status.Text = "Server stopped. Its SQLite database and TLS certificate are retained in the data directory.";
     }
 
@@ -242,7 +272,10 @@ internal sealed class OwnerPanel : UserControl, IDisposable
             ?? [];
         _pending.ItemsSource = pending.Select(x => new PendingEntry(x)).ToArray();
         _devices.ItemsSource = devices.Select(x => new DeviceEntry(x)).ToArray();
-        _status.Text = $"Owner authenticated. {pending.Length} pending requests, {devices.Length} devices.";
+        var sessions = await http.GetFromJsonAsync<SessionSummaryResponse[]>(
+            "/api/v1/auth/sessions") ?? [];
+        _sessions.ItemsSource = sessions.Select(x => new SessionEntry(x)).ToArray();
+        _status.Text = $"Owner authenticated. {pending.Length} pending requests, {devices.Length} devices, {sessions.Length} own sessions.";
     }
 
     private async Task DecideAsync(bool approve)
@@ -270,6 +303,67 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         await RefreshAsync();
     }
 
+    private async Task RevokeOwnerSessionAsync()
+    {
+        if (_sessions.SelectedItem is not SessionEntry entry)
+            throw new InvalidOperationException("Choose an owner session to revoke.");
+        var http = RequireOwnerClient();
+        using var response = await http.PostAsync(
+            $"/api/v1/auth/sessions/{entry.Value.SessionId:D}/revoke", null);
+        response.EnsureSuccessStatusCode();
+        if (entry.Value.Current)
+        {
+            http.DefaultRequestHeaders.Authorization = null;
+            _authenticated = false;
+            _sessions.ItemsSource = null;
+            _status.Text = "Current owner sign-in revoked. Sign in again to manage the server.";
+            return;
+        }
+        await RefreshAsync();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        var snapshot = await RequireOwnerClient()
+            .GetFromJsonAsync<ServerSettingsSnapshotResponse>("/api/v1/server/settings")
+            ?? throw new InvalidDataException("Server settings response was empty.");
+
+        _bindAddress.Text = snapshot.Persisted.BindAddress;
+        _port.Text = snapshot.Persisted.Port.ToString();
+        _storagePath.Text = snapshot.Persisted.StoragePath;
+        _discovery.IsChecked = snapshot.Persisted.DiscoveryEnabled;
+        _approvalRequired.IsChecked = snapshot.Persisted.ClientApprovalRequired;
+        _settingsStatus.Text = snapshot.RestartRequired
+            ? $"Configuration saved but NOT ACTIVE. Listener remains {snapshot.Active.BindAddress}:{snapshot.Active.Port}. Restart owner host to activate persisted changes."
+            : $"Active listener {snapshot.Active.BindAddress}:{snapshot.Active.Port}. Persisted settings match runtime.";
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        if (!int.TryParse(_port.Text, out var port) || port < 1 || port > 65535)
+            throw new ArgumentException("Enter a valid HTTPS port (1–65535).");
+        if (!System.Net.IPAddress.TryParse(_bindAddress.Text, out _))
+            throw new ArgumentException("Listener bind address must be an IPv4 or IPv6 address.");
+        if (string.IsNullOrWhiteSpace(_storagePath.Text))
+            throw new ArgumentException("Server storage directory is required.");
+
+        var http = RequireOwnerClient();
+        using var response = await http.PutAsJsonAsync(
+            "/api/v1/server/settings",
+            new UpdateServerSettingsRequest(
+                _bindAddress.Text!.Trim(),
+                port,
+                _discovery.IsChecked == true,
+                _approvalRequired.IsChecked == true,
+                Path.GetFullPath(_storagePath.Text.Trim())));
+        response.EnsureSuccessStatusCode();
+        var snapshot = await response.Content.ReadFromJsonAsync<ServerSettingsSnapshotResponse>()
+            ?? throw new InvalidDataException("Server settings update was empty.");
+        _settingsStatus.Text = snapshot.RestartRequired
+            ? "Changes persisted on canonical server. Restart required before listener/storage policy changes become active."
+            : "Changes persisted and current settings match the running server.";
+    }
+
     private HttpClient RequireOwnerClient() =>
         _authenticated && _http is not null
             ? _http
@@ -289,7 +383,8 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _directory.IsEnabled = !_busy && !_runtime.IsRunning;
         _bootstrap.IsEnabled = !_busy && _runtime.IsRunning && !_configured;
         _login.IsEnabled = !_busy && _configured;
-        foreach (var button in new[] { _issueInvite, _refresh, _approve, _reject, _revokeDevice })
+        foreach (var button in new[] { _issueInvite, _refresh, _approve, _reject,
+            _revokeDevice, _revokeSession, _loadSettings, _saveSettings })
             button.IsEnabled = !_busy && _authenticated;
     }
 
@@ -300,6 +395,12 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _confirmation.Text = "";
     }
 
+    private sealed record SessionEntry(SessionSummaryResponse Value)
+    {
+        public override string ToString() =>
+            $"{(Value.Current ? "Current owner session" : "Owner session")} · {Value.SessionId:D} · expires {Value.ExpiresUtc.LocalDateTime:g}" +
+            (Value.RevokedUtc is null ? "" : " · REVOKED");
+    }
     private sealed record PendingEntry(PendingJoinRequestResponse Value)
     {
         public override string ToString() =>
