@@ -33,6 +33,8 @@ internal sealed class JoinPanel : UserControl, IDisposable
     private readonly Button _exchange = Button("Complete owner-approved pairing");
     private readonly Button _restore = Button("Restore saved device session");
     private readonly Button _unpair = Button("Revoke this device and unpair");
+    private readonly Button _logout = Button("Sign out session (keep device pairing)");
+    private readonly Button _rotate = Button("Rotate approved device credential");
     private readonly PairedClientSessionManager _sessions = new();
     private readonly ClientPairingStateStore _pairings = new();
     private HttpClient? _provisionalHttp;
@@ -77,6 +79,8 @@ internal sealed class JoinPanel : UserControl, IDisposable
         panel.Children.Add(_exchange);
         panel.Children.Add(Heading("Previously approved device"));
         panel.Children.Add(_restore);
+        panel.Children.Add(_logout);
+        panel.Children.Add(_rotate);
         panel.Children.Add(_unpair);
         panel.Children.Add(_status);
         panel.Children.Add(new TextBlock
@@ -96,6 +100,8 @@ internal sealed class JoinPanel : UserControl, IDisposable
         _exchange.Click += async (_, _) => await ExecuteAsync(ExchangeAsync);
         _restore.Click += async (_, _) => await ExecuteAsync(RestoreAsync);
         _unpair.Click += async (_, _) => await ExecuteAsync(UnpairAsync);
+        _logout.Click += async (_, _) => await ExecuteAsync(LogoutAsync);
+        _rotate.Click += async (_, _) => await ExecuteAsync(RotateCredentialAsync);
 
         _status.Text = "No verified server or active paired device. Manual HTTPS enrollment is available on Windows.";
         SetControls();
@@ -304,6 +310,29 @@ internal sealed class JoinPanel : UserControl, IDisposable
         }
     }
 
+    private async Task LogoutAsync()
+    {
+        if (_connection is null)
+            throw new InvalidOperationException("No active device session.");
+        await _connection.CreateApiClient().LogoutAsync();
+        _connection.Dispose();
+        _connection = null;
+        _status.Text = "Bearer session revoked server-side. Protected device pairing retained for future renewal.";
+        SessionEnded?.Invoke();
+    }
+
+    private async Task RotateCredentialAsync()
+    {
+        RequireWindowsProtection();
+        if (_connection is null)
+            throw new InvalidOperationException("No active device session.");
+        var updated = await _sessions.RotateCredentialAsync(
+            ClientPairingStateStore.GetDefaultPath(), _connection.Session);
+        _connection = updated;
+        _status.Text = "Device credential rotated and saved using protected local storage. Previous device sessions invalidated.";
+        SessionReady?.Invoke(updated);
+    }
+
     private async Task UnpairAsync()
     {
         if (_connection is null)
@@ -351,6 +380,8 @@ internal sealed class JoinPanel : UserControl, IDisposable
         _exchange.IsEnabled = !_busy && _pendingId is not null;
         _restore.IsEnabled = !_busy;
         _unpair.IsEnabled = !_busy && _connection is not null;
+        _logout.IsEnabled = !_busy && _connection is not null;
+        _rotate.IsEnabled = !_busy && _connection is not null;
     }
 
     public void Dispose()
