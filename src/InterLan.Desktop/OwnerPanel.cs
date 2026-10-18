@@ -234,12 +234,21 @@ internal sealed class OwnerPanel : UserControl, IDisposable
             throw new ArgumentException("Enter the owner username and password.");
 
         _http.DefaultRequestHeaders.Authorization = null;
-        using var response = await _http.PostAsJsonAsync(
-            "/api/v1/auth/owner/login",
-            new LoginRequest(_username.Text.Trim(), _password.Text));
-        _password.Text = "";
-        _confirmation.Text = "";
-        response.EnsureSuccessStatusCode();
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.PostAsJsonAsync(
+                "/api/v1/auth/owner/login",
+                new LoginRequest(_username.Text.Trim(), _password.Text));
+        }
+        finally
+        {
+            _password.Text = "";
+            _confirmation.Text = "";
+        }
+        using (response)
+        {
+            response.EnsureSuccessStatusCode();
         var session = await response.Content.ReadFromJsonAsync<SessionResponse>()
             ?? throw new InvalidDataException("Owner session response was empty.");
         if (!string.Equals(session.Role, "Owner", StringComparison.OrdinalIgnoreCase) ||
@@ -250,6 +259,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _authenticated = true;
         _status.Text = $"Authenticated owner session, expires {session.ExpiresUtc.LocalDateTime:g}.";
         await RefreshAsync();
+        }
     }
 
     private async Task InviteAsync()
