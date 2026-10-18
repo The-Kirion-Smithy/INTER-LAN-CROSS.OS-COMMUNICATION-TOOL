@@ -139,9 +139,18 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         try { await work(); }
         catch (Exception ex)
         {
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+            {
+                _authenticated = false;
+                if (_http is not null) _http.DefaultRequestHeaders.Authorization = null;
+            }
             // Never include request bodies, passwords, tokens or raw exception ToString.
             _status.Text = ex switch
             {
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized } =>
+                    "Owner session expired or revoked. Sign in again.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden } =>
+                    "Owner authorization denied this operation.",
                 HttpRequestException => "HTTPS request failed. Check the server address, certificate and network.",
                 UnauthorizedAccessException => "Authentication, authorization or certificate pinning rejected this operation.",
                 _ => $"Operation failed: {ex.Message}"

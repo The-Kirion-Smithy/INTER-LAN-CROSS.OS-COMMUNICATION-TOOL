@@ -119,6 +119,10 @@ internal sealed class JoinPanel : UserControl, IDisposable
             _status.Text = ex switch
             {
                 UnauthorizedAccessException => "Operation denied: certificate mismatch, rejected approval or revoked/expired device credentials.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized } =>
+                    "The server rejected these credentials or the join exchange is not approved.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden } =>
+                    "The server denied this operation.",
                 HttpRequestException => "Cannot reach the pinned HTTPS server. Check its address, network and certificate.",
                 _ => $"Operation failed: {ex.Message}"
             };

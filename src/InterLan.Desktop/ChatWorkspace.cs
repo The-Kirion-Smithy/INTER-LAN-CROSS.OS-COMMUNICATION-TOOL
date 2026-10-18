@@ -167,6 +167,16 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         }
         catch (Exception ex)
         {
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+            {
+                _status.Text = "Server rejected the expired/revoked bearer. Renew the device session on the Join tab.";
+                return;
+            }
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden })
+            {
+                _status.Text = "Server denied this conversation operation. Membership or message policy may have changed.";
+                return;
+            }
             _status.Text = ex is HttpRequestException
                 ? "Network request failed. Your unconfirmed draft remains in the editor; retry after reconnect."
                 : $"Operation failed: {ex.Message}";
