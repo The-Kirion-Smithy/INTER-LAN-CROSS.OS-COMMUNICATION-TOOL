@@ -121,6 +121,41 @@ public static class GroupEndpointMappings
             }
         });
 
+        app.MapGet("/api/v1/groups/{groupId:guid}/events", async (
+            Guid groupId,
+            Guid? afterEventId,
+            int? limit,
+            HttpContext context,
+            EnrollmentStore enrollment,
+            GroupStore groups,
+            CancellationToken cancellationToken) =>
+        {
+            var principal = await AuthorizationHelpers.GetPrincipalAsync(
+                context,
+                enrollment,
+                cancellationToken);
+            if (principal is null)
+                return Results.Unauthorized();
+
+            try
+            {
+                return Results.Ok(await groups.ListGroupEventsAsync(
+                    principal.UserId,
+                    groupId,
+                    afterEventId,
+                    Math.Clamp(limit ?? 100, 1, 250),
+                    cancellationToken));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+        });
+
         app.MapPost("/api/v1/groups/{groupId:guid}/members", async (
             Guid groupId,
             AddGroupMemberRequest request,
