@@ -1,175 +1,76 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Layout;
-using Avalonia.Media;
+using InterLan.Application;
 
 namespace InterLan.Desktop;
 
-/// <summary>
-/// First-run owner runtime controls. Account bootstrap and client pairing stay
-/// separate operations; starting the owner host does not grant owner identity.
-/// </summary>
+/// <summary>Native composition for one embedded owner host and one paired client session.</summary>
 public sealed class MainWindow : Window
 {
-    private readonly OwnerServerRuntime _ownerServer = new();
-    private readonly TextBlock _status;
-    private readonly Button _startServer;
-    private readonly Button _stopServer;
-    private bool _busy;
+    private readonly OwnerServerRuntime _ownerRuntime = new();
+    private readonly OwnerPanel _ownerPanel;
+    private readonly JoinPanel _joinPanel;
+    private readonly TabControl _tabs = new();
+    private readonly TabItem _ownerTab;
+    private readonly TabItem _joinTab;
+    private PairedClientConnection? _connection;
+    private ChatWorkspace? _chat;
+    private TabItem? _chatTab;
 
     public MainWindow()
     {
-        Title = "INTER-LAN";
-        Width = 920;
-        Height = 620;
-        MinWidth = 720;
+        Title = "INTER-LAN · Native";
+        Width = 1080;
+        Height = 760;
+        MinWidth = 650;
         MinHeight = 480;
 
-        var title = new TextBlock
-        {
-            Text = "INTER-LAN",
-            FontSize = 34,
-            FontWeight = FontWeight.Bold
-        };
+        _ownerPanel = new OwnerPanel(_ownerRuntime);
+        _joinPanel = new JoinPanel();
+        _ownerTab = new TabItem { Header = "Owner server", Content = _ownerPanel };
+        _joinTab = new TabItem { Header = "Join trusted server", Content = _joinPanel };
+        _tabs.Items.Add(_ownerTab);
+        _tabs.Items.Add(_joinTab);
+        _tabs.Margin = new Thickness(12);
+        Content = _tabs;
 
-        var subtitle = new TextBlock
-        {
-            Text = "Native LAN communication · Owner server controls",
-            FontSize = 15,
-            Opacity = 0.72
-        };
-
-        _status = new TextBlock
-        {
-            Text = "Start the local owner server, or connect using a separately paired client. The owner account must still be bootstrapped before use.",
-            TextWrapping = TextWrapping.Wrap,
-            Opacity = 0.8
-        };
-
-        _startServer = new Button
-        {
-            Content = "Start Owner Server",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinHeight = 48
-        };
-        _startServer.Click += async (_, _) => await StartOwnerServerAsync();
-
-        _stopServer = new Button
-        {
-            Content = "Stop Owner Server",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinHeight = 48,
-            IsEnabled = false
-        };
-        _stopServer.Click += async (_, _) => await StopOwnerServerAsync();
-
-        var joinServer = new Button
-        {
-            Content = "Join Server (client pairing UI pending)",
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            MinHeight = 48,
-            IsEnabled = false
-        };
-
-        var panel = new StackPanel
-        {
-            Spacing = 16,
-            Width = 520,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children =
-            {
-                title,
-                subtitle,
-                new Border { Height = 8 },
-                _startServer,
-                _stopServer,
-                joinServer,
-                new Border { Height = 8 },
-                _status
-            }
-        };
-
-        Content = new Grid
-        {
-            Margin = new Thickness(32),
-            Children = { panel }
-        };
-
+        _joinPanel.SessionReady += OnSessionReady;
+        _joinPanel.SessionEnded += RemoveClientWorkspace;
         Closed += async (_, _) =>
         {
-            try
-            {
-                await _ownerServer.DisposeAsync();
-            }
-            catch
-            {
-                // Window is already closing: do not expose server secrets
-                // or crash the desktop on a best-effort shutdown.
-            }
+            RemoveClientWorkspace();
+            _joinPanel.Dispose();
+            _ownerPanel.Dispose();
+            try { await _ownerRuntime.DisposeAsync(); }
+            catch { /* Best effort: application is closing. */ }
         };
     }
 
-    private static string OwnerDataDirectory()
+    private void OnSessionReady(PairedClientConnection connection)
     {
-        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        if (string.IsNullOrWhiteSpace(local))
-            local = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
-
-        return Path.Combine(local, "InterLan", "OwnerServer");
+        RemoveClientWorkspace();
+        _connection = connection;
+        _chat = new ChatWorkspace(connection);
+        _chatTab = new TabItem { Header = "Native messaging", Content = _chat };
+        _tabs.Items.Add(_chatTab);
+        _tabs.SelectedItem = _chatTab;
+        _ = _chat.InitializeAsync();
     }
 
-    private async Task StartOwnerServerAsync()
+    private void RemoveClientWorkspace()
     {
-        if (_busy || _ownerServer.IsRunning)
-            return;
-
-        SetBusy(true);
-        _status.Text = "Starting owner server…";
-
-        try
+        if (_chatTab is not null)
         {
-            var dataDirectory = OwnerDataDirectory();
-            Directory.CreateDirectory(dataDirectory);
-            await _ownerServer.StartAsync(dataDirectory);
-            _status.Text = $"Owner server started. Data directory: {dataDirectory}. Complete one-time owner bootstrap using the local owner setup API before issuing invites.";
+            _tabs.Items.Remove(_chatTab);
+            _chatTab = null;
+            _tabs.SelectedItem = _joinTab;
         }
-        catch (Exception exception)
+        if (_chat is not null)
         {
-            _status.Text = $"Could not start owner server: {exception.Message}";
+            _ = _chat.DisposeAsync();
+            _chat = null;
         }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    private async Task StopOwnerServerAsync()
-    {
-        if (_busy || !_ownerServer.IsRunning)
-            return;
-
-        SetBusy(true);
-        _status.Text = "Stopping owner server…";
-        try
-        {
-            await _ownerServer.StopAsync();
-            _status.Text = "Owner server stopped. Durable server identity and data were retained.";
-        }
-        catch (Exception exception)
-        {
-            _status.Text = $"Could not stop owner server cleanly: {exception.Message}";
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
-    private void SetBusy(bool busy)
-    {
-        _busy = busy;
-        _startServer.IsEnabled = !busy && !_ownerServer.IsRunning;
-        _stopServer.IsEnabled = !busy && _ownerServer.IsRunning;
+        _connection?.Dispose();
+        _connection = null;
     }
 }
