@@ -84,6 +84,8 @@ export const api = {
   catchUp: (token, id, after, signal) => requestJson("/api/v1/direct/" + idPath(id) + "/messages/page?limit=100" + (after ? "&afterMessageId=" + encode(idPath(after)) : ""), { token, signal }),
   send: (token, id, body) => requestJson("/api/v1/direct/" + idPath(id) + "/messages", { method: "POST", token, body }),
   markRead: (token, id, upToMessageId) => requestJson("/api/v1/direct/" + idPath(id) + "/read", { method: "POST", token, body: { upToMessageId: upToMessageId || null } }),
+  getPreference: (token, id, signal) => requestJson("/api/v1/direct/" + idPath(id) + "/preference", { token, signal }),
   preference: (token, id, body) => requestJson("/api/v1/direct/" + idPath(id) + "/preference", { method: "PUT", token, body }),
+  searchThread: (token, id, query, signal) => requestJson("/api/v1/direct/" + idPath(id) + "/search?q=" + encode(query) + "&limit=40", { token, signal }),
   ticket: (token) => requestJson("/api/v1/realtime/ticket", { method: "POST", token, body: {} })
 };

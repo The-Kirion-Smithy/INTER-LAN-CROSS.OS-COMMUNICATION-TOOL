@@ -190,3 +190,17 @@ small { display: block; line-height: 1.5; }
   .workspace.section-groups:not(.has-thread) .workspace-content,
   .workspace.section-files:not(.has-thread) .workspace-content { display: flex; }
 }
+
+.thread-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; border-bottom: 1px solid #263a56; background: #101c2e; padding: 8px 20px; }
+.thread-actions button { font-size: .75rem; min-height: 32px; padding: 6px 10px; }
+.thread-search { background: #14233b; border-bottom: 1px solid #314866; padding: 12px 20px; max-height: 35vh; overflow-y: auto; }
+.thread-search form { display: flex; gap: 8px; }
+.thread-search input { min-height: 38px; }
+.search-hits { max-height: 150px; overflow-y: auto; padding: 6px 0; }
+.search-hit { display: grid; gap: 3px; padding: 9px 3px; border-top: 1px solid #354866; overflow-wrap: anywhere; font-size: .83rem; }
+.search-hit time { font-size: .7rem; color: #9baec8; }
+@media (max-width: 660px) {
+  .thread-actions, .thread-search { padding: 6px 9px; }
+  .thread-actions button { font-size: .71rem; }
+  .thread-search form button { padding: 8px; }
+}
