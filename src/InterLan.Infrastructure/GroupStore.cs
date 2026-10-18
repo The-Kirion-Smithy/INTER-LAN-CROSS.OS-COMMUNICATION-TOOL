@@ -650,6 +650,103 @@ public sealed class GroupStore(SqliteDatabase database)
             now);
     }
 
+    public async Task<IReadOnlyList<GroupEventResponse>> ListGroupEventsAsync(
+        Guid actorUserId,
+        Guid groupId,
+        Guid? afterEventId = null,
+        int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 250)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+
+        await using var connection = database.OpenConnection();
+        using var transaction = BeginReadTransaction(connection);
+
+        await RequireActiveGroupMemberAsync(
+            connection,
+            actorUserId,
+            groupId,
+            cancellationToken,
+            transaction);
+
+        string? afterCreatedUtc = null;
+        string? afterId = null;
+
+        if (afterEventId is { } cursor)
+        {
+            await using var cursorCommand = connection.CreateCommand();
+            cursorCommand.Transaction = transaction;
+            cursorCommand.CommandText =
+                """
+                SELECT created_utc, group_event_id
+                FROM group_events
+                WHERE group_event_id = $eventId
+                  AND group_id = $groupId;
+                """;
+            cursorCommand.Parameters.AddWithValue("$eventId", cursor.ToString("D"));
+            cursorCommand.Parameters.AddWithValue("$groupId", groupId.ToString("D"));
+
+            await using var reader =
+                await cursorCommand.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+                throw new KeyNotFoundException(
+                    "Group event cursor was not found.");
+
+            afterCreatedUtc = reader.GetString(0);
+            afterId = reader.GetString(1);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            SELECT group_event_id, group_id, actor_user_id,
+                   subject_user_id, event_type, payload_json, created_utc
+            FROM group_events
+            WHERE group_id = $groupId
+              AND (
+                  $afterCreatedUtc IS NULL
+                  OR created_utc > $afterCreatedUtc
+                  OR (created_utc = $afterCreatedUtc AND group_event_id > $afterId)
+              )
+            ORDER BY created_utc, group_event_id
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$groupId", groupId.ToString("D"));
+        command.Parameters.AddWithValue(
+            "$afterCreatedUtc",
+            afterCreatedUtc is null ? DBNull.Value : afterCreatedUtc);
+        command.Parameters.AddWithValue(
+            "$afterId",
+            afterId is null ? DBNull.Value : afterId);
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var events = new List<GroupEventResponse>();
+        await using var eventReader =
+            await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await eventReader.ReadAsync(cancellationToken))
+        {
+            events.Add(new GroupEventResponse(
+                Guid.Parse(eventReader.GetString(0)),
+                Guid.Parse(eventReader.GetString(1)),
+                eventReader.IsDBNull(2)
+                    ? null
+                    : Guid.Parse(eventReader.GetString(2)),
+                eventReader.IsDBNull(3)
+                    ? null
+                    : Guid.Parse(eventReader.GetString(3)),
+                eventReader.GetString(4),
+                eventReader.GetString(5),
+                DateTimeOffset.Parse(eventReader.GetString(6))));
+        }
+
+        await eventReader.DisposeAsync();
+        transaction.Commit();
+        return events;
+    }
+
     private static async Task<(string Role, DateTimeOffset? RemovedUtc)?> GetGroupMemberStateAsync(
         SqliteConnection connection,
         Guid groupId,
