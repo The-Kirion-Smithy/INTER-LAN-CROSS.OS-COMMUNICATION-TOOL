@@ -1,0 +1,57 @@
+.groups-workspace { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; overflow-y: auto; background: #0b1422; }
+.groups-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 24px clamp(15px,3vw,30px); border-bottom: 1px solid #2c3f57; }
+.groups-heading h2 { margin: 7px 0 4px; font-size: 1.5rem; }
+.groups-heading p { margin: 0; color: #9fb1c9; font-size: .86rem; }
+.groups-workspace > .inline-error, .groups-workspace > .inline-notice { margin: 13px 25px; }
+.groups-grid { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(230px, 31%) minmax(0, 1fr); }
+.groups-list { background: #101d30; border-right: 1px solid #2a405d; padding: 18px 13px; min-width: 0; }
+.groups-list h3 { margin: 14px 8px; font-size: .95rem; }
+.group-create, .group-edit, .group-add { display: grid; gap: 10px; border: 1px solid #2e4360; border-radius: 13px; padding: 16px; background: #14233a; }
+.group-create h3, .group-edit h3, .group-add h3 { margin: 0; }
+.group-create label, .group-edit label, .group-add label { display: grid; gap: 6px; color: #cad9ec; font-size: .81rem; font-weight: 650; }
+.group-create button, .group-edit button { font-size: .83rem; }
+.group-buttons { display: grid; gap: 5px; }
+.group-picker { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; background: transparent; padding: 12px 10px; border-radius: 11px; }
+.group-picker.selected, .group-picker:hover { background: #203758; }
+.group-picker-symbol { display: grid; flex: 0 0 34px; height: 34px; place-items: center; background: #304e7e; border-radius: 11px; font-size: 1.2rem; }
+.group-picker > span:last-child { display: grid; min-width: 0; gap: 3px; }
+.group-picker strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-picker small { color: #9cb0ca; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-size: .75rem; font-weight: 400; }
+.group-details { padding: clamp(14px,2.7vw,28px); min-width: 0; display: grid; align-content: start; gap: 22px; }
+.group-placeholder { color: #9caec8; }
+.group-details h3 { font-size: 1.02rem; }
+.group-overview { padding-bottom: 16px; border-bottom: 1px solid #30435d; }
+.group-overview h3 { margin: 0 0 8px; font-size: 1.35rem; }
+.group-overview p { margin-bottom: 12px; color: #9db2ca; overflow-wrap: anywhere; }
+.group-role { display: inline-flex; border-radius: 99px; background: #23416c; color: #c8dfff; padding: 5px 11px; font-size: .78rem; }
+.group-edit { max-width: 630px; }
+.group-members, .group-add, .group-events { min-width: 0; }
+.group-member { border-top: 1px solid #2d415c; padding: 11px 0; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.group-member .avatar { flex: 0 0 39px; height: 39px; border-radius: 12px; }
+.group-member .member-name { display: grid; gap: 2px; min-width: 0; flex: 1; overflow-wrap: anywhere; font-size: .86rem; }
+.group-member .member-name small { color: #9aadc6; }
+.group-member button { min-height: 36px; font-size: .76rem; padding: 6px 10px; }
+.group-member select, .group-add select { border: 1px solid #3a5272; border-radius: 9px; padding: 8px; color: #e3efff; background: #15283f; font: inherit; font-size: .82rem; max-width: 100%; }
+.group-role-select { flex: 0 0 auto; }
+.group-events h3, .group-members h3 { margin: 0 0 12px; }
+.group-event { display: flex; gap: 12px; align-items: start; justify-content: space-between; border-top: 1px solid #2d415a; padding: 11px 0; font-size: .84rem; text-transform: capitalize; }
+.group-event time { font-size: .76rem; color: #94aac5; white-space: nowrap; }
+.group-message-boundary { border: 1px dashed #455c7c; border-radius: 12px; background: #14243a; padding: 15px; color: #c8d8ea; }
+.group-message-boundary p { color: #94abc8; margin: 8px 0 0; font-size: .84rem; }
+@media (max-width: 1050px) {
+  .groups-grid { grid-template-columns: minmax(205px,35%) minmax(0,1fr); }
+  .group-member { flex-wrap: wrap; }
+}
+@media (max-width: 790px) {
+  .groups-grid { grid-template-columns: minmax(0,1fr); }
+  .groups-list { border-right: none; border-bottom: 1px solid #30425b; }
+  .group-create { max-width: 600px; }
+  .groups-workspace { overflow-y: auto; }
+}
+@media (max-width: 360px) {
+  .groups-heading { padding: 16px 11px; }
+  .groups-heading h2 { font-size: 1.2rem; }
+  .groups-list { padding: 12px 8px; }
+  .group-details { padding: 14px 10px; }
+  .group-event { flex-wrap: wrap; gap: 4px; }
+}
