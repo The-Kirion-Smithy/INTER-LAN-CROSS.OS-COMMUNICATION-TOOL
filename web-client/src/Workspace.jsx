@@ -327,7 +327,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
           <button type="button" className="quiet-button" onClick={onLogout}>Log out</button>
         </div>
       </header>
-      <div className={"workspace " + (active && section === "chats" ? "has-thread" : "")}>
+      <div className={"workspace section-" + section + " " + (active && section === "chats" ? "has-thread" : "")}>
         <aside className="workspace-sidebar" aria-label="Workspace navigation">
           <div className="sidebar-heading"><h1>{sections.find(item => item[0] === section)?.[1]}</h1><p>{section === "chats" ? unread + " unread messages" : "Server-authorized workspace"}</p></div>
           <nav className="section-nav" aria-label="Features">{sections.map(([id, label]) =>

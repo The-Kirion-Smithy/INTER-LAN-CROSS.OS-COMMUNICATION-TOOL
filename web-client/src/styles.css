@@ -180,3 +180,13 @@ small { display: block; line-height: 1.5; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* Mobile secondary panels must remain reachable while Chats and People use the list-first flow. */
+@media (max-width: 660px) {
+  .workspace.section-settings:not(.has-thread) .workspace-sidebar,
+  .workspace.section-groups:not(.has-thread) .workspace-sidebar,
+  .workspace.section-files:not(.has-thread) .workspace-sidebar { display: none; }
+  .workspace.section-settings:not(.has-thread) .workspace-content,
+  .workspace.section-groups:not(.has-thread) .workspace-content,
+  .workspace.section-files:not(.has-thread) .workspace-content { display: flex; }
+}
