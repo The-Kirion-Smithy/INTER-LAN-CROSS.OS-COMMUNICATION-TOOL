@@ -1,248 +1,182 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { fetchServerInfo } from "./serverInfo.js";
+import { api, explainApiError } from "./api/client.js";
+import { submitEnrollment, exchangeEnrollment } from "./auth/enrollment.js";
+import Workspace from "./Workspace.jsx";
 import "./styles.css";
 
-async function postJson(path, body, token) {
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(path, {
-    method: "POST",
-    headers,
-    cache: "no-store",
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const error = new Error(`Request was rejected (HTTP ${response.status}).`);
-    error.status = response.status;
-    throw error;
-  }
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-function newEnrollmentSecret() {
-  if (!globalThis.crypto?.getRandomValues) {
-    throw new Error("Secure browser context is required for enrollment.");
-  }
-  const bytes = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(bytes);
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-const emptyJoin = { state: "idle", requestId: null, secret: null, error: null };
+const emptyJoin = { state: "idle", request: null, error: "" };
+const emptyForm = { inviteToken: "", username: "", displayName: "", deviceName: "" };
 
 function App() {
   const [server, setServer] = useState({ state: "checking" });
-  const [requestId, setRequestId] = useState(0);
-  const [inviteToken, setInviteToken] = useState("");
-  const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [deviceName, setDeviceName] = useState("");
+  const [refresh, setRefresh] = useState(0);
+  const [form, setForm] = useState(emptyForm);
   const [join, setJoin] = useState(emptyJoin);
   const [session, setSession] = useState(null);
+  const [notice, setNotice] = useState("");
+  const operation = useRef(null);
+  const busy = join.state === "submitting" || join.state === "exchanging";
 
   useEffect(() => {
     const controller = new AbortController();
     setServer({ state: "checking" });
-
     fetchServerInfo({ signal: controller.signal })
-      .then((data) => {
-        if (!controller.signal.aborted) setServer({ state: "ready", data });
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          setServer({
-            state: "offline",
-            error: error instanceof Error ? error.message : "Status request failed.",
-          });
-        }
+      .then(data => { if (!controller.signal.aborted) setServer({ state: "ready", data }); })
+      .catch(error => {
+        if (!controller.signal.aborted) setServer({
+          state: "offline", error: error instanceof Error ? error.message : "Server unavailable."
+        });
       });
-
     return () => controller.abort();
-  }, [requestId]);
+  }, [refresh]);
 
   useEffect(() => {
-    const onOnline = () => setRequestId((id) => id + 1);
+    const onOnline = () => setRefresh(previous => previous + 1);
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, []);
 
-  const checking = server.state === "checking";
-  const offline = server.state === "offline";
-  const configured = server.state === "ready" && server.data.configured;
-  const heading = checking
-    ? "Checking server"
-    : offline
-      ? "Server unavailable"
-      : server.data.serverName;
-  const detail = checking
-    ? "Reading /api/v1/server/info"
-    : offline
-      ? server.error
-      : `API ${server.data.apiVersion} · ${server.data.runtimeMode}`;
-  const busy = join.state === "submitting" || join.state === "exchanging";
+  const onSessionLost = useCallback((message) => {
+    setSession(null);
+    setJoin(emptyJoin);
+    setNotice(message || "The browser session ended.");
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    const until = Date.parse(session.expiresUtc) - Date.now();
+    if (until <= 0) { onSessionLost("The session expired. Request a new approval to continue."); return; }
+    const timer = setTimeout(() => onSessionLost("The session expired. Request a new approval to continue."), until);
+    return () => clearTimeout(timer);
+  }, [session, onSessionLost]);
+
+  useEffect(() => () => operation.current?.abort(), []);
+
+  function cancelEnrollment() {
+    operation.current?.abort();
+    operation.current = null;
+    setJoin(emptyJoin);
+    setNotice("Enrollment cancelled in this tab. The owner may still see the submitted request.");
+  }
 
   async function submitJoin(event) {
     event.preventDefault();
-    if (!configured || busy || session) return;
-
-    setJoin({ ...emptyJoin, state: "submitting" });
+    if (server.state !== "ready" || !server.data.configured || session || busy) return;
+    const controller = new AbortController();
+    operation.current = controller;
+    setNotice("");
+    setJoin({ state: "submitting", request: null, error: "" });
     try {
-      const secret = newEnrollmentSecret();
-      const submitted = await postJson("/api/v1/join", {
-        inviteToken: inviteToken.trim(),
-        username: username.trim(),
-        displayName: displayName.trim(),
-        deviceName: deviceName.trim(),
-        platform: "Browser",
-        enrollmentSecret: secret,
-      });
-      if (!submitted?.requestId) {
-        throw new Error("The server returned no enrollment request identifier.");
-      }
-      // Keep the one-time secret in this tab only, never in browser storage.
-      setJoin({ state: "pending", requestId: submitted.requestId, secret, error: null });
-      setInviteToken("");
+      const request = await submitEnrollment(form, controller.signal);
+      if (controller.signal.aborted) return;
+      setJoin({ state: "pending", request, error: "" });
+      setForm(previous => ({ ...previous, inviteToken: "" }));
     } catch (error) {
-      setJoin({
-        ...emptyJoin,
-        error: error instanceof Error ? error.message : "Could not submit the join request.",
+      if (!controller.signal.aborted) setJoin({
+        state: "idle", request: null, error: explainApiError(error)
       });
+    } finally {
+      if (operation.current === controller) operation.current = null;
     }
   }
 
   async function exchangeApproval() {
-    if (!join.requestId || !join.secret || busy) return;
-    const request = join;
-    setJoin({ ...join, state: "exchanging", error: null });
+    if (!join.request || busy) return;
+    const currentRequest = join.request;
+    const controller = new AbortController();
+    operation.current = controller;
+    setJoin({ state: "exchanging", request: currentRequest, error: "" });
     try {
-      const approved = await postJson("/api/v1/join/exchange", {
-        requestId: request.requestId,
-        enrollmentSecret: request.secret,
-      });
-      if (!approved?.bearerToken || !approved?.deviceId || !approved?.userId) {
-        throw new Error("The server returned an incomplete authorized session.");
-      }
-      // This first browser slice deliberately does not implement persistent pairing.
-      // In particular, credentials are not saved to localStorage or URL fragments.
+      const authorized = await exchangeEnrollment(currentRequest, controller.signal);
+      if (controller.signal.aborted) return;
       setSession({
-        bearerToken: approved.bearerToken,
-        deviceId: approved.deviceId,
-        userId: approved.userId,
-        expiresUtc: approved.expiresUtc,
+        ...authorized,
+        displayName: form.displayName.trim(),
+        username: form.username.trim(),
+        deviceName: form.deviceName.trim()
       });
-      setJoin({ ...emptyJoin, state: "connected" });
+      setJoin(emptyJoin);
+      setNotice("");
     } catch (error) {
-      setJoin({
-        ...request,
-        state: "pending",
-        error: error?.status === 401
-          ? "Not approved yet, or the enrollment request was rejected. Ask the owner and retry."
-          : error instanceof Error ? error.message : "Could not exchange approval.",
-      });
+      if (!controller.signal.aborted) {
+        const errorMessage = error?.status === 401
+          ? "Approval is not ready, was denied, or is no longer valid. Check with the owner."
+          : explainApiError(error);
+        setJoin({ state: "pending", request: currentRequest, error: errorMessage });
+      }
+    } finally {
+      if (operation.current === controller) operation.current = null;
     }
   }
 
   async function logout() {
     if (!session) return;
-    let error = null;
+    const token = session.bearerToken;
+    // Immediately unmount every authenticated view and dispose realtime listeners.
+    onSessionLost("Signed out. This tab has cleared its session.");
     try {
-      await postJson("/api/v1/auth/logout", {}, session.bearerToken);
+      await api.logout(token);
     } catch {
-      error = "Local session cleared. Remote revocation could not be confirmed.";
-    } finally {
-      setSession(null);
-      setJoin({ ...emptyJoin, error });
+      setNotice("This tab is signed out. Server-side revocation could not be confirmed; ask the owner to revoke the session if needed.");
     }
   }
 
-  return (
-    <main className="shell">
-      <section className="hero" aria-labelledby="client-heading">
-        <div className="eyebrow">INTER-LAN · WEB CLIENT</div>
-        <h1 id="client-heading">Communication stays on your LAN.</h1>
-        <p className="lede">
-          Connect through your owner's server. Android and other browsers are clients;
-          the owner machine retains server authority.
-        </p>
+  if (session) return <Workspace session={session} serverName={server.data?.serverName || "Owner server"}
+    onLogout={logout} onSessionLost={onSessionLost} />;
 
-        <div className="status-card" role="status" aria-live="polite" aria-atomic="true">
-          <span className={`dot ${server.state}`} aria-hidden="true" />
+  const configured = server.state === "ready" && server.data.configured;
+  return <main className="auth-shell">
+    <section className="auth-layout" aria-labelledby="welcome-heading">
+      <div className="auth-intro">
+        <div className="eyebrow">INTER-LAN / PRIVATE NETWORK MESSAGING</div>
+        <div className="auth-logo" aria-hidden="true">I</div>
+        <h1 id="welcome-heading">Your people. Your network.</h1>
+        <p className="lede">Chat with members on your LAN through the owner-controlled server. Your browser is a client, never the server.</p>
+        <div className="status-card" role="status" aria-live="polite">
+          <span className={"dot " + server.state} aria-hidden="true" />
           <div className="status-content">
-            <strong>{heading}</strong>
-            <p>{detail}</p>
-            {offline && (
-              <button
-                type="button"
-                className="retry-button"
-                onClick={() => setRequestId((id) => id + 1)}
-              >
-                Retry connection
-              </button>
-            )}
+            <strong>{server.state === "ready" ? server.data.serverName : server.state === "checking" ? "Checking the owner server" : "Server unavailable"}</strong>
+            <p>{server.state === "ready"
+              ? "API " + server.data.apiVersion + " · " + server.data.runtimeMode
+              : server.state === "checking" ? "Reading current LAN server status…" : server.error}</p>
+            {server.state === "offline" && <button type="button" className="quiet-button" onClick={() => setRefresh(count => count + 1)}>Retry server</button>}
           </div>
         </div>
-
-        {configured && !session && join.state !== "pending" && join.state !== "exchanging" && (
-          <form className="join-panel" onSubmit={submitJoin}>
-            <h2>Request to join</h2>
-            <p>Ask the server owner for a one-time invitation. Your request must be approved.</p>
-            <label>
-              Invitation token
-              <input required autoComplete="off" value={inviteToken} onChange={(e) => setInviteToken(e.target.value)} />
-            </label>
-            <label>
-              Username
-              <input required maxLength={80} autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
-            </label>
-            <label>
-              Display name
-              <input required maxLength={120} value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
-            </label>
-            <label>
-              Device name
-              <input required maxLength={120} value={deviceName} onChange={(e) => setDeviceName(e.target.value)} placeholder="e.g. Office tablet" />
-            </label>
-            <button type="submit" disabled={busy}>
-              {busy ? "Submitting…" : "Submit join request"}
-            </button>
-          </form>
-        )}
-
-        {(join.state === "pending" || join.state === "exchanging") && (
-          <div className="join-panel" role="status">
-            <h2>Waiting for owner approval</h2>
-            <p>Your request was submitted. Ask the server owner to approve it, then exchange the approval below.</p>
-            <button type="button" onClick={exchangeApproval} disabled={busy}>
-              {busy ? "Checking approval…" : "Check approval"}
-            </button>
-            <p className="notice">Keep this tab open until approval is exchanged. Reloading discards the one-time enrollment secret.</p>
-          </div>
-        )}
-
-        {session && (
-          <div className="join-panel" role="status">
-            <h2>Device session connected</h2>
-            <p>Server-approved browser identity is active until session expiration or logout.</p>
-            <p className="notice">Browser persistence and the messaging workspace are not connected in this slice; reloading ends this tab's local session.</p>
-            <button type="button" onClick={logout}>Log out and revoke session</button>
-          </div>
-        )}
-
-        {server.state === "ready" && !server.data.configured && (
-          <p className="notice">This server has not completed owner bootstrap. Ask its owner to finish setup first.</p>
-        )}
-
-        {join.error && <p className="error-text" role="alert">{join.error}</p>}
-        <small>Approval and session exchange are handled by the LAN owner server, not by this browser.</small>
-      </section>
-    </main>
-  );
+        <p className="trust-note">If HTTPS shows a certificate warning, contact the server owner and verify its identity through a trusted channel. Browsers do not provide native certificate pinning here.</p>
+      </div>
+      <div className="auth-card">
+        {!configured && server.state === "ready" && <div role="status"><h2>Owner setup required</h2><p>Ask the owner to finish server bootstrap before enrollment.</p></div>}
+        {!configured && server.state === "checking" && <div role="status"><h2>Connecting</h2><p>Checking whether the server can enroll devices.</p></div>}
+        {!configured && server.state === "offline" && <div role="status"><h2>LAN connection unavailable</h2><p>Reconnect to the owner's LAN or confirm HTTPS trust, then retry.</p></div>}
+        {configured && join.state !== "pending" && join.state !== "exchanging" && <form onSubmit={submitJoin} className="enrollment-form">
+          <span className="form-kicker">DEVICE ENROLLMENT</span><h2>Request access</h2>
+          <p>Enter the one-time invitation shared by the owner. Approval is required before messaging.</p>
+          <label>Invitation token<input type="text" required autoComplete="off" value={form.inviteToken}
+            onChange={event => setForm(previous => ({ ...previous, inviteToken: event.target.value }))} /></label>
+          <label>Username<input required maxLength={80} autoComplete="username" value={form.username}
+            onChange={event => setForm(previous => ({ ...previous, username: event.target.value }))} /></label>
+          <label>Display name<input required maxLength={120} value={form.displayName}
+            onChange={event => setForm(previous => ({ ...previous, displayName: event.target.value }))} /></label>
+          <label>Device name<input required maxLength={120} placeholder="Example: Office Android phone" value={form.deviceName}
+            onChange={event => setForm(previous => ({ ...previous, deviceName: event.target.value }))} /></label>
+          <button type="submit" disabled={busy}> {busy ? "Submitting request…" : "Request owner approval"} </button>
+          {busy && <button type="button" className="quiet-button" onClick={cancelEnrollment}>Cancel</button>}
+        </form>}
+        {configured && (join.state === "pending" || join.state === "exchanging") && <div className="approval-panel" role="status">
+          <div className="approval-symbol" aria-hidden="true">⌛</div>
+          <h2>Awaiting owner approval</h2><p>Your request was sent to the owner server. After approval, check for your authorized session.</p>
+          <button type="button" disabled={busy} onClick={exchangeApproval}>{busy ? "Checking approval…" : "Check approval"}</button>
+          <button type="button" className="quiet-button" onClick={cancelEnrollment}>Cancel on this device</button>
+          <p className="notice">Keep this tab open. Reloading erases the one-time enrollment secret and any issued session. The browser stores no device credential.</p>
+        </div>}
+        {join.error && <p className="inline-error" role="alert">{join.error}</p>}
+        {notice && <p className="inline-notice" role="status">{notice}</p>}
+      </div>
+    </section>
+    <footer className="auth-footer">INTER-LAN · Server-enforced identity, authorization and message storage</footer>
+  </main>;
 }
 
-createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+createRoot(document.getElementById("root")).render(<React.StrictMode><App /></React.StrictMode>);
