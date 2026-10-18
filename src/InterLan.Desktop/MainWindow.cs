@@ -14,6 +14,7 @@ public sealed class MainWindow : Window
     private readonly TabItem _ownerTab;
     private readonly TabItem _joinTab;
     private PairedClientConnection? _connection;
+    private ChatWorkspace? _chat;
     private TabItem? _chatTab;
 
     public MainWindow()
@@ -49,16 +50,11 @@ public sealed class MainWindow : Window
     {
         RemoveClientWorkspace();
         _connection = connection;
-        _chatTab = new TabItem
-        {
-            Header = "Native messaging",
-            Content = new TextBlock
-            {
-                Text = "Device session established. Conversation workspace integration follows in this development branch."
-            }
-        };
+        _chat = new ChatWorkspace(connection);
+        _chatTab = new TabItem { Header = "Native messaging", Content = _chat };
         _tabs.Items.Add(_chatTab);
         _tabs.SelectedItem = _chatTab;
+        _ = _chat.InitializeAsync();
     }
 
     private void RemoveClientWorkspace()
@@ -68,6 +64,11 @@ public sealed class MainWindow : Window
             _tabs.Items.Remove(_chatTab);
             _chatTab = null;
             _tabs.SelectedItem = _joinTab;
+        }
+        if (_chat is not null)
+        {
+            _ = _chat.DisposeAsync();
+            _chat = null;
         }
         _connection?.Dispose();
         _connection = null;
