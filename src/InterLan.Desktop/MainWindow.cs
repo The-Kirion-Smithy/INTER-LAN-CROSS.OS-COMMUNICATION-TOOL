@@ -15,6 +15,8 @@ public sealed class MainWindow : Window
     private readonly TabItem _joinTab;
     private PairedClientConnection? _connection;
     private ChatWorkspace? _chat;
+    private GroupWorkspace? _groups;
+    private TabItem? _groupsTab;
     private TabItem? _chatTab;
 
     public MainWindow()
@@ -53,12 +55,22 @@ public sealed class MainWindow : Window
         _chat = new ChatWorkspace(connection);
         _chatTab = new TabItem { Header = "Native messaging", Content = _chat };
         _tabs.Items.Add(_chatTab);
+        _groups = new GroupWorkspace(connection);
+        _groupsTab = new TabItem { Header = "Groups", Content = _groups };
+        _tabs.Items.Add(_groupsTab);
         _tabs.SelectedItem = _chatTab;
         _ = _chat.InitializeAsync();
+        _ = _groups.InitializeAsync();
     }
 
     private void RemoveClientWorkspace()
     {
+        if (_groupsTab is not null)
+        {
+            _tabs.Items.Remove(_groupsTab);
+            _groupsTab = null;
+            _groups = null;
+        }
         if (_chatTab is not null)
         {
             _tabs.Items.Remove(_chatTab);
