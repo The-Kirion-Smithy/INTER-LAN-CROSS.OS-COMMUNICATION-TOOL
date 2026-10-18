@@ -37,6 +37,12 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
   const [sessions, setSessions] = useState([]);
   const [securityError, setSecurityError] = useState("");
   const [searchError, setSearchError] = useState("");
+  const [preference, setPreference] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [threadQuery, setThreadQuery] = useState("");
+  const [threadMatches, setThreadMatches] = useState([]);
+  const [threadSearchBusy, setThreadSearchBusy] = useState(false);
+  const [threadSearchError, setThreadSearchError] = useState("");
   const [now, setNow] = useState(Date.now());
 
   const threadRef = useRef(null);
@@ -167,6 +173,49 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
     }, 300);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [section, search, token, failIfUnauthorized]);
+
+  useEffect(() => {
+    if (!active?.conversationId) return;
+    const controller = new AbortController();
+    setPreference(null);
+    setSearchOpen(false);
+    setThreadQuery("");
+    setThreadMatches([]);
+    setThreadSearchError("");
+    api.getPreference(token, active.conversationId, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setPreference(data); })
+      .catch(error => { if (!controller.signal.aborted && !failIfUnauthorized(error)) setThreadError(explainApiError(error)); });
+    return () => controller.abort();
+  }, [active?.conversationId, token, failIfUnauthorized]);
+
+  async function changePreference(key) {
+    if (!active || !preference) return;
+    const id = active.conversationId;
+    try {
+      const next = { isPinned: Boolean(preference.isPinned), mutedUntilUtc: preference.mutedUntilUtc || null, isArchived: Boolean(preference.isArchived) };
+      next[key] = !next[key];
+      const confirmed = await api.preference(token, id, next);
+      if (activeRef.current === id) setPreference(confirmed);
+      scheduleInbox();
+    } catch (error) {
+      if (!failIfUnauthorized(error)) setThreadError(explainApiError(error));
+    }
+  }
+
+  async function searchConversation(event) {
+    event.preventDefault();
+    if (!active || !threadQuery.trim()) return;
+    setThreadSearchBusy(true);
+    setThreadSearchError("");
+    try {
+      const data = await api.searchThread(token, active.conversationId, threadQuery.trim());
+      if (activeRef.current === data.conversationId) setThreadMatches(Array.isArray(data.items) ? data.items : []);
+    } catch (error) {
+      if (!failIfUnauthorized(error)) setThreadSearchError(explainApiError(error));
+    } finally {
+      setThreadSearchBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!active?.conversationId) return;
@@ -372,6 +421,23 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
               <div className="thread-title"><h2>{nameOf(selected.otherUser)}</h2><span>Direct conversation · server-authorized</span></div>
               <button type="button" className="quiet-button" onClick={catchUp} title="Fetch messages missed while disconnected">Sync</button>
             </header>
+            <div className="thread-actions" aria-label="Conversation actions">
+              <button type="button" className="quiet-button" disabled={!preference} onClick={() => changePreference("isPinned")}>{preference?.isPinned ? "Unpin" : "Pin conversation"}</button>
+              <button type="button" className="quiet-button" disabled={!preference} onClick={() => changePreference("isArchived")}>{preference?.isArchived ? "Unarchive" : "Archive"}</button>
+              <button type="button" className="quiet-button" aria-expanded={searchOpen} onClick={() => setSearchOpen(value => !value)}>{searchOpen ? "Close search" : "Search messages"}</button>
+            </div>
+            {searchOpen && <div className="thread-search">
+              <form onSubmit={searchConversation}>
+                <label className="sr-only" htmlFor="thread-search-query">Search this conversation</label>
+                <input id="thread-search-query" type="search" value={threadQuery} onChange={event => setThreadQuery(event.target.value)} placeholder="Search server-saved messages" required />
+                <button type="submit" disabled={threadSearchBusy}>Search</button>
+              </form>
+              {threadSearchError && <p className="inline-error" role="alert">{threadSearchError}</p>}
+              <div className="search-hits" role="region" aria-label="Message search results">
+                {threadMatches.map(hit => <div className="search-hit" key={hit.messageId}><span>{hit.deletedUtc ? "Deleted message" : hit.body}</span><time>{new Date(hit.createdUtc).toLocaleString()}</time></div>)}
+                {threadMatches.length === 0 && !threadSearchBusy && <p className="muted">No results loaded or no matches found.</p>}
+              </div>
+            </div>}
             <div className="thread-messages" ref={threadRef} role="log" aria-label="Direct messages" aria-live="polite" aria-relevant="additions text">
               {hasOlder && <button type="button" className="load-more" disabled={historyBusy} onClick={loadOlder}>{historyBusy ? "Loading…" : "Load older messages"}</button>}
               {historyBusy && messages.length === 0 && <p className="muted center">Loading history…</p>}
