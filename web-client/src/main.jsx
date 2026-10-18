@@ -88,8 +88,8 @@ function App() {
     if (!configured || busy || session) return;
 
     setJoin({ ...emptyJoin, state: "submitting" });
-    const secret = newEnrollmentSecret();
     try {
+      const secret = newEnrollmentSecret();
       const submitted = await postJson("/api/v1/join", {
         inviteToken: inviteToken.trim(),
         username: username.trim(),
