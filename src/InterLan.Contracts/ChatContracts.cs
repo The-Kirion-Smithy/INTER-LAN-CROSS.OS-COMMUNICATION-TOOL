@@ -136,3 +136,48 @@ public sealed record DirectGlobalMessageSearchHitResponse(
 public sealed record DirectGlobalMessageSearchResponse(
     string Query,
     IReadOnlyList<DirectGlobalMessageSearchHitResponse> Hits);
+
+public sealed record CreateGroupRequest(
+    string Name,
+    string? Topic = null);
+
+public sealed record GroupSummaryResponse(
+    Guid GroupId,
+    string Name,
+    string? Topic,
+    string MyRole,
+    DateTimeOffset CreatedUtc);
+
+public sealed record GroupMemberResponse(
+    Guid UserId,
+    string Username,
+    string DisplayName,
+    string Role,
+    DateTimeOffset JoinedUtc);
+
+public sealed record GroupDetailsResponse(
+    Guid GroupId,
+    string Name,
+    string? Topic,
+    Guid CreatedByUserId,
+    DateTimeOffset CreatedUtc,
+    string MyRole,
+    IReadOnlyList<GroupMemberResponse> Members);
+
+public sealed record UpdateGroupRequest(
+    string Name,
+    string? Topic);
+
+public sealed record AddGroupMemberRequest(
+    Guid UserId,
+    string Role = "MEMBER");
+
+public sealed record UpdateGroupMemberRoleRequest(
+    string Role);
+
+public sealed record GroupMembershipMutationResponse(
+    Guid GroupId,
+    Guid UserId,
+    string? Role,
+    string Status,
+    DateTimeOffset ChangedUtc);
