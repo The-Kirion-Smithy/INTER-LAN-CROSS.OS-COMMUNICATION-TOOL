@@ -181,3 +181,12 @@ public sealed record GroupMembershipMutationResponse(
     string? Role,
     string Status,
     DateTimeOffset ChangedUtc);
+
+public sealed record GroupEventResponse(
+    Guid GroupEventId,
+    Guid GroupId,
+    Guid? ActorUserId,
+    Guid? SubjectUserId,
+    string EventType,
+    string PayloadJson,
+    DateTimeOffset CreatedUtc);
