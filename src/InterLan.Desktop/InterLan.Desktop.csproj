@@ -6,6 +6,7 @@
     <ProjectReference Include="../InterLan.Application/InterLan.Application.csproj" />
     <ProjectReference Include="../InterLan.Contracts/InterLan.Contracts.csproj" />
     <ProjectReference Include="../InterLan.Server/InterLan.Server.csproj" />
+    <ProjectReference Include="../InterLan.Infrastructure/InterLan.Infrastructure.csproj" />
     <PackageReference Include="Avalonia" Version="12.1.2" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />

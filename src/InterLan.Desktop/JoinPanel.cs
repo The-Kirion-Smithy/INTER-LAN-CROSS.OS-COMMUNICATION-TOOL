@@ -5,6 +5,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using InterLan.Infrastructure;
 using InterLan.Application;
 using InterLan.Contracts;
 
@@ -17,6 +18,9 @@ namespace InterLan.Desktop;
 internal sealed class JoinPanel : UserControl, IDisposable
 {
     private readonly TextBox _origin = new() { Watermark = "https://192.168.1.20:7443" };
+    private readonly ListBox _discovery = new() { Height = 112 };
+    private readonly Button _scan = Button("Scan LAN announcements (untrusted)");
+    private readonly Button _useAdvertisedAddress = Button("Use selected LAN address (do not trust fingerprint)");
     private readonly TextBox _fingerprint = new() { Watermark = "64-digit SHA-256 from the owner" };
     private readonly TextBox _invite = new() { Watermark = "Owner-issued invitation token" };
     private readonly TextBox _username = new() { Watermark = "Username" };
@@ -29,6 +33,8 @@ internal sealed class JoinPanel : UserControl, IDisposable
     private readonly Button _exchange = Button("Complete owner-approved pairing");
     private readonly Button _restore = Button("Restore saved device session");
     private readonly Button _unpair = Button("Revoke this device and unpair");
+    private readonly Button _logout = Button("Sign out session (keep device pairing)");
+    private readonly Button _rotate = Button("Rotate approved device credential");
     private readonly PairedClientSessionManager _sessions = new();
     private readonly ClientPairingStateStore _pairings = new();
     private HttpClient? _provisionalHttp;
@@ -50,6 +56,10 @@ internal sealed class JoinPanel : UserControl, IDisposable
             Text = "Obtain the HTTPS address and SHA-256 certificate fingerprint directly from the owner. A LAN announcement alone is NOT proof of identity.",
             TextWrapping = TextWrapping.Wrap
         });
+        panel.Children.Add(Heading("LAN discovery — untrusted advertisements"));
+        panel.Children.Add(_scan);
+        panel.Children.Add(_discovery);
+        panel.Children.Add(_useAdvertisedAddress);
         panel.Children.Add(Label("HTTPS server origin"));
         panel.Children.Add(_origin);
         panel.Children.Add(Label("Independently confirmed certificate fingerprint"));
@@ -69,6 +79,8 @@ internal sealed class JoinPanel : UserControl, IDisposable
         panel.Children.Add(_exchange);
         panel.Children.Add(Heading("Previously approved device"));
         panel.Children.Add(_restore);
+        panel.Children.Add(_logout);
+        panel.Children.Add(_rotate);
         panel.Children.Add(_unpair);
         panel.Children.Add(_status);
         panel.Children.Add(new TextBlock
@@ -81,11 +93,15 @@ internal sealed class JoinPanel : UserControl, IDisposable
         });
         Content = new ScrollViewer { Content = panel };
 
+        _scan.Click += async (_, _) => await ExecuteAsync(ScanAsync);
+        _useAdvertisedAddress.Click += (_, _) => SelectDiscoveredAddress();
         _verify.Click += async (_, _) => await ExecuteAsync(VerifyAsync);
         _request.Click += async (_, _) => await ExecuteAsync(RequestAsync);
         _exchange.Click += async (_, _) => await ExecuteAsync(ExchangeAsync);
         _restore.Click += async (_, _) => await ExecuteAsync(RestoreAsync);
         _unpair.Click += async (_, _) => await ExecuteAsync(UnpairAsync);
+        _logout.Click += async (_, _) => await ExecuteAsync(LogoutAsync);
+        _rotate.Click += async (_, _) => await ExecuteAsync(RotateCredentialAsync);
 
         _status.Text = "No verified server or active paired device. Manual HTTPS enrollment is available on Windows.";
         SetControls();
@@ -103,11 +119,59 @@ internal sealed class JoinPanel : UserControl, IDisposable
             _status.Text = ex switch
             {
                 UnauthorizedAccessException => "Operation denied: certificate mismatch, rejected approval or revoked/expired device credentials.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized } =>
+                    "The server rejected these credentials or the join exchange is not approved.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden } =>
+                    "The server denied this operation.",
                 HttpRequestException => "Cannot reach the pinned HTTPS server. Check its address, network and certificate.",
                 _ => $"Operation failed: {ex.Message}"
             };
         }
         finally { _busy = false; SetControls(); }
+    }
+
+    private async Task ScanAsync()
+    {
+        var announcements = new Dictionary<string, DiscoveredEntry>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(4));
+        await using var discovery = new LanDiscoveryClient();
+        try
+        {
+            await foreach (var candidate in discovery.ListenAsync(timeout.Token))
+            {
+                var address = $"https://{candidate.Remote.Address}:{candidate.Announcement.HttpsPort}";
+                announcements[address] = new DiscoveredEntry(
+                    candidate.Announcement.ServerName,
+                    candidate.Announcement.ServerId,
+                    address,
+                    candidate.Announcement.CertificateSha256);
+                _discovery.ItemsSource = announcements.Values.ToArray();
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            // Expected bounded scan completion.
+        }
+        _status.Text = $"Found {announcements.Count} untrusted LAN advertisements. Confirm certificate identity with the owner separately.";
+    }
+
+    private void SelectDiscoveredAddress()
+    {
+        if (_discovery.SelectedItem is not DiscoveredEntry selected)
+        {
+            _status.Text = "Select an advertisement before copying its address.";
+            return;
+        }
+        _origin.Text = selected.Origin;
+        _fingerprint.Text = ""; // Do not auto-trust the broadcast fingerprint.
+        _verifiedIdentity.Text = "";
+        _verified = null;
+        _pendingId = null;
+        _pendingSecret = null;
+        _provisionalHttp?.Dispose();
+        _provisionalHttp = null;
+        _status.Text = "Address copied from untrusted LAN discovery. Ask the owner for the independent fingerprint, enter it manually, and verify.";
+        SetControls();
     }
 
     private async Task VerifyAsync()
@@ -193,11 +257,20 @@ internal sealed class JoinPanel : UserControl, IDisposable
         var statePath = ClientPairingStateStore.GetDefaultPath();
         // A successful exchange is one-time. Preserve the active bearer even
         // if local storage fails; DO NOT claim the pairing was persisted.
+        var established = new PairedClientConnection(pairing, session,
+            PinnedTransportFactory.CreateHttpClient(pairing));
         var persisted = false;
         try
         {
             await _pairings.SaveAsync(statePath, pairing);
             persisted = true;
+        }
+        catch (Exception)
+        {
+            // Server exchange is already consumed. Keep a usable in-memory
+            // bearer session so the device can be explicitly revoked. Do not
+            // claim that its credential survived a restart.
+            _status.Text = "Approved, but secure local credential storage failed. This session is temporary. Revoke this device before exiting; a fresh invite will be required.";
         }
         finally
         {
@@ -205,11 +278,9 @@ internal sealed class JoinPanel : UserControl, IDisposable
             _pendingId = null;
         }
 
-        var established = new PairedClientConnection(pairing, session,
-            PinnedTransportFactory.CreateHttpClient(pairing));
         _connection = established;
-        _status.Text = persisted ? "Device paired and locally protected. Session is active." :
-            "Session active; credential storage was not completed.";
+        if (persisted)
+            _status.Text = "Device paired and locally protected. Session is active.";
         SessionReady?.Invoke(established);
     }
 
@@ -241,6 +312,29 @@ internal sealed class JoinPanel : UserControl, IDisposable
             renewed.Dispose();
             throw;
         }
+    }
+
+    private async Task LogoutAsync()
+    {
+        if (_connection is null)
+            throw new InvalidOperationException("No active device session.");
+        await _connection.CreateApiClient().LogoutAsync();
+        _connection.Dispose();
+        _connection = null;
+        _status.Text = "Bearer session revoked server-side. Protected device pairing retained for future renewal.";
+        SessionEnded?.Invoke();
+    }
+
+    private async Task RotateCredentialAsync()
+    {
+        RequireWindowsProtection();
+        if (_connection is null)
+            throw new InvalidOperationException("No active device session.");
+        var updated = await _sessions.RotateCredentialAsync(
+            ClientPairingStateStore.GetDefaultPath(), _connection.Session);
+        _connection = updated;
+        _status.Text = "Device credential rotated and saved using protected local storage. Previous device sessions invalidated.";
+        SessionReady?.Invoke(updated);
     }
 
     private async Task UnpairAsync()
@@ -283,11 +377,15 @@ internal sealed class JoinPanel : UserControl, IDisposable
 
     private void SetControls()
     {
+        _scan.IsEnabled = !_busy;
+        _useAdvertisedAddress.IsEnabled = !_busy;
         _verify.IsEnabled = !_busy;
         _request.IsEnabled = !_busy && _verified is not null && _pendingId is null;
         _exchange.IsEnabled = !_busy && _pendingId is not null;
         _restore.IsEnabled = !_busy;
         _unpair.IsEnabled = !_busy && _connection is not null;
+        _logout.IsEnabled = !_busy && _connection is not null;
+        _rotate.IsEnabled = !_busy && _connection is not null;
     }
 
     public void Dispose()
@@ -298,6 +396,11 @@ internal sealed class JoinPanel : UserControl, IDisposable
         // MainWindow owns/disposes any handed-off active session.
     }
 
+    private sealed record DiscoveredEntry(string Name, Guid Id, string Origin, string AdvertisedFingerprint)
+    {
+        public override string ToString() =>
+            $"{Name} · {Origin} · untrusted advertised ID {Id:D} / SHA-256 {AdvertisedFingerprint}";
+    }
     private sealed record VerifiedServer(Guid Id, string Origin, string Fingerprint, string Name);
     private static TextBlock Heading(string text) => new() { Text = text, FontSize = 20, FontWeight = FontWeight.Bold };
     private static TextBlock Label(string text) => new() { Text = text, FontWeight = FontWeight.SemiBold };

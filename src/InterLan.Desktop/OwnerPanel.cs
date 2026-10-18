@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Platform.Storage;
 using InterLan.Contracts;
 
 namespace InterLan.Desktop;
@@ -33,6 +34,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
     private readonly TextBox _storagePath = new();
     private readonly CheckBox _discovery = new() { Content = "Advertise server on LAN" };
     private readonly CheckBox _approvalRequired = new() { Content = "Require owner device approval" };
+    private readonly Button _browseDirectory = Button("Choose data folder…");
     private readonly Button _start = Button("Start owner server");
     private readonly Button _stop = Button("Stop server");
     private readonly Button _bootstrap = Button("Create the owner account");
@@ -60,6 +62,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
             TextWrapping = TextWrapping.Wrap });
         stack.Children.Add(Label("Durable server data directory"));
         stack.Children.Add(_directory);
+        stack.Children.Add(_browseDirectory);
         stack.Children.Add(Row(_start, _stop));
         stack.Children.Add(_status);
         stack.Children.Add(_identity);
@@ -102,6 +105,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         stack.Children.Add(_settingsStatus);
 
         Content = new ScrollViewer { Content = stack };
+        _browseDirectory.Click += async (_, _) => await ExecuteAsync(BrowseOwnerDirectoryAsync);
         _start.Click += async (_, _) => await ExecuteAsync(StartAsync);
         _stop.Click += async (_, _) => await ExecuteAsync(StopAsync);
         _bootstrap.Click += async (_, _) => await ExecuteAsync(BootstrapAsync);
@@ -135,9 +139,18 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         try { await work(); }
         catch (Exception ex)
         {
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+            {
+                _authenticated = false;
+                if (_http is not null) _http.DefaultRequestHeaders.Authorization = null;
+            }
             // Never include request bodies, passwords, tokens or raw exception ToString.
             _status.Text = ex switch
             {
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized } =>
+                    "Owner session expired or revoked. Sign in again.",
+                HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden } =>
+                    "Owner authorization denied this operation.",
                 HttpRequestException => "HTTPS request failed. Check the server address, certificate and network.",
                 UnauthorizedAccessException => "Authentication, authorization or certificate pinning rejected this operation.",
                 _ => $"Operation failed: {ex.Message}"
@@ -148,6 +161,24 @@ internal sealed class OwnerPanel : UserControl, IDisposable
             _busy = false;
             SetControls();
         }
+    }
+
+    private async Task BrowseOwnerDirectoryAsync()
+    {
+        var top = TopLevel.GetTopLevel(this) ??
+            throw new InvalidOperationException("The desktop window is not ready.");
+        var folders = await top.StorageProvider.OpenFolderPickerAsync(
+            new FolderPickerOpenOptions
+            {
+                Title = "Choose a durable INTER-LAN owner data directory",
+                AllowMultiple = false
+            });
+        if (folders.Count == 0)
+            return;
+        var selected = folders[0].TryGetLocalPath();
+        if (string.IsNullOrWhiteSpace(selected))
+            throw new InvalidOperationException("Select a local filesystem directory for SQLite and the server certificate.");
+        _directory.Text = selected;
     }
 
     private async Task StartAsync()
@@ -234,12 +265,21 @@ internal sealed class OwnerPanel : UserControl, IDisposable
             throw new ArgumentException("Enter the owner username and password.");
 
         _http.DefaultRequestHeaders.Authorization = null;
-        using var response = await _http.PostAsJsonAsync(
-            "/api/v1/auth/owner/login",
-            new LoginRequest(_username.Text.Trim(), _password.Text));
-        _password.Text = "";
-        _confirmation.Text = "";
-        response.EnsureSuccessStatusCode();
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.PostAsJsonAsync(
+                "/api/v1/auth/owner/login",
+                new LoginRequest(_username.Text.Trim(), _password.Text));
+        }
+        finally
+        {
+            _password.Text = "";
+            _confirmation.Text = "";
+        }
+        using (response)
+        {
+            response.EnsureSuccessStatusCode();
         var session = await response.Content.ReadFromJsonAsync<SessionResponse>()
             ?? throw new InvalidDataException("Owner session response was empty.");
         if (!string.Equals(session.Role, "Owner", StringComparison.OrdinalIgnoreCase) ||
@@ -250,6 +290,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _authenticated = true;
         _status.Text = $"Authenticated owner session, expires {session.ExpiresUtc.LocalDateTime:g}.";
         await RefreshAsync();
+        }
     }
 
     private async Task InviteAsync()
@@ -381,6 +422,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
         _start.IsEnabled = !_busy && !_runtime.IsRunning;
         _stop.IsEnabled = !_busy && _runtime.IsRunning;
         _directory.IsEnabled = !_busy && !_runtime.IsRunning;
+        _browseDirectory.IsEnabled = !_busy && !_runtime.IsRunning;
         _bootstrap.IsEnabled = !_busy && _runtime.IsRunning && !_configured;
         _login.IsEnabled = !_busy && _configured;
         foreach (var button in new[] { _issueInvite, _refresh, _approve, _reject,

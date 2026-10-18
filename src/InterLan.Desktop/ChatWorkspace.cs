@@ -28,8 +28,21 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
     private readonly Button _refresh = Button("Refresh inbox / directory");
     private readonly Button _open = Button("Open direct message with selected person");
     private readonly Button _reloadThread = Button("Refresh selected conversation");
+    private readonly TextBox _searchInput = new() { Watermark = "Search this conversation" };
+    private readonly ListBox _searchResults = new() { Height = 110 };
+    private readonly TextBox _editInput = new() { Watermark = "Edit your selected message" };
+    private readonly Button _searchButton = Button("Search server history");
+    private readonly Button _reply = Button("Reply to selected message");
+    private readonly Button _edit = Button("Save edit to selected own message");
+    private readonly Button _delete = Button("Delete selected own message");
+    private readonly Button _receipts = Button("Show selected message receipts");
+    private readonly Button _pin = Button("Pin conversation");
+    private readonly Button _archive = Button("Archive conversation");
     private readonly List<MessageResponse> _history = [];
     private Guid? _conversationId;
+    private Guid? _replyToMessageId;
+    private Guid? _confirmDeleteId;
+    private DirectConversationPreferenceResponse? _preference;
     private Guid? _olderBeforeMessageId;
     private string? _retryBody;
     private Guid? _retryClientMessageId;
@@ -54,8 +67,22 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         right.Children.Add(Heading("Direct messages"));
         right.Children.Add(_selected);
         right.Children.Add(_reloadThread);
+        var preferences = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        preferences.Children.Add(_pin);
+        preferences.Children.Add(_archive);
+        right.Children.Add(preferences);
         right.Children.Add(_older);
         right.Children.Add(_messages);
+        right.Children.Add(_receipts);
+        right.Children.Add(_reply);
+        right.Children.Add(_editInput);
+        var editButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        editButtons.Children.Add(_edit);
+        editButtons.Children.Add(_delete);
+        right.Children.Add(editButtons);
+        right.Children.Add(_searchInput);
+        right.Children.Add(_searchButton);
+        right.Children.Add(_searchResults);
         right.Children.Add(_composer);
         right.Children.Add(_send);
         right.Children.Add(_status);
@@ -74,6 +101,22 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         _older.Click += async (_, _) => await ExecuteAsync(LoadOlderAsync);
         _open.Click += async (_, _) => await ExecuteAsync(OpenSelectedUserAsync);
         _send.Click += async (_, _) => await ExecuteAsync(SendAsync);
+        _searchButton.Click += async (_, _) => await ExecuteAsync(SearchAsync);
+        _reply.Click += (_, _) => ChooseReply();
+        _edit.Click += async (_, _) => await ExecuteAsync(EditSelectedAsync);
+        _delete.Click += async (_, _) => await ExecuteAsync(DeleteSelectedAsync);
+        _receipts.Click += async (_, _) => await ExecuteAsync(ShowReceiptsAsync);
+        _pin.Click += async (_, _) => await ExecuteAsync(() => UpdatePreferenceAsync(togglePin: true));
+        _archive.Click += async (_, _) => await ExecuteAsync(() => UpdatePreferenceAsync(togglePin: false));
+        _messages.SelectionChanged += (_, _) =>
+        {
+            _confirmDeleteId = null;
+            if (_messages.SelectedItem is MessageEntry selected &&
+                selected.Mine && selected.Value.DeletedUtc is null)
+                _editInput.Text = selected.Value.Body;
+            else
+                _editInput.Text = "";
+        };
         _inbox.SelectionChanged += async (_, _) =>
         {
             if (_inbox.SelectedItem is InboxEntry entry)
@@ -124,6 +167,16 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         }
         catch (Exception ex)
         {
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized })
+            {
+                _status.Text = "Server rejected the expired/revoked bearer. Renew the device session on the Join tab.";
+                return;
+            }
+            if (ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden })
+            {
+                _status.Text = "Server denied this conversation operation. Membership or message policy may have changed.";
+                return;
+            }
             _status.Text = ex is HttpRequestException
                 ? "Network request failed. Your unconfirmed draft remains in the editor; retry after reconnect."
                 : $"Operation failed: {ex.Message}";
@@ -166,6 +219,12 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         _selected.Text = $"Conversation: {title}";
         _retryBody = null;
         _retryClientMessageId = null;
+        _replyToMessageId = null;
+        _confirmDeleteId = null;
+        _searchResults.ItemsSource = null;
+        _preference = await _api.GetDirectConversationPreferenceAsync(conversationId);
+        _pin.Content = _preference.IsPinned ? "Unpin conversation" : "Pin conversation";
+        _archive.Content = _preference.IsArchived ? "Unarchive conversation" : "Archive conversation";
         await RefreshThreadAsync();
     }
 
@@ -225,15 +284,101 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         }
 
         var confirmed = await _api.SendDirectMessageAsync(
-            id, new SendMessageRequest(_retryClientMessageId.Value, text));
+            id, new SendMessageRequest(_retryClientMessageId.Value, text, _replyToMessageId));
 
         _retryClientMessageId = null;
         _retryBody = null;
         _composer.Text = "";
+        _replyToMessageId = null;
         _history.Add(confirmed);
         RenderMessages();
         await RefreshListsAsync();
         _status.Text = "Message persisted by the server.";
+    }
+
+    private void ChooseReply()
+    {
+        if (_messages.SelectedItem is not MessageEntry selected ||
+            selected.Value.DeletedUtc is not null)
+        {
+            _status.Text = "Select an existing message to reply.";
+            return;
+        }
+        _replyToMessageId = selected.Value.MessageId;
+        _status.Text = $"Replying to server message {_replyToMessageId:D}. Your draft will reference that message.";
+        _composer.Focus();
+    }
+
+    private async Task EditSelectedAsync()
+    {
+        if (_conversationId is not { } id ||
+            _messages.SelectedItem is not MessageEntry selected ||
+            !selected.Mine || selected.Value.DeletedUtc is not null)
+            throw new InvalidOperationException("Select one of your existing messages to edit.");
+        var newBody = _editInput.Text ?? "";
+        if (string.IsNullOrWhiteSpace(newBody))
+            throw new ArgumentException("Edited content cannot be empty.");
+        await _api.EditDirectMessageAsync(id, selected.Value.MessageId, newBody);
+        await RefreshThreadAsync();
+        _status.Text = "Message edit confirmed by server.";
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (_conversationId is not { } id ||
+            _messages.SelectedItem is not MessageEntry selected ||
+            !selected.Mine || selected.Value.DeletedUtc is not null)
+            throw new InvalidOperationException("Select one of your existing messages to delete.");
+        if (_confirmDeleteId != selected.Value.MessageId)
+        {
+            _confirmDeleteId = selected.Value.MessageId;
+            _status.Text = "Click Delete selected own message again to confirm server-side deletion.";
+            return;
+        }
+        await _api.DeleteDirectMessageAsync(id, selected.Value.MessageId);
+        _confirmDeleteId = null;
+        await RefreshThreadAsync();
+        _status.Text = "Message deletion confirmed by server.";
+    }
+
+    private async Task ShowReceiptsAsync()
+    {
+        if (_messages.SelectedItem is not MessageEntry selected)
+            throw new InvalidOperationException("Select a message to view receipts.");
+        var receipts = await _api.GetMessageReceiptsAsync(selected.Value.MessageId);
+        _status.Text = receipts.Count == 0
+            ? "No server-confirmed receipts yet."
+            : string.Join(" | ", receipts.Select(r =>
+                $"user {r.UserId:D}: delivered {(r.DeliveredUtc is null ? "—" : r.DeliveredUtc.Value.LocalDateTime.ToString("g"))}, read {(r.ReadUtc is null ? "—" : r.ReadUtc.Value.LocalDateTime.ToString("g"))}"));
+    }
+
+    private async Task SearchAsync()
+    {
+        if (_conversationId is not { } id)
+            throw new InvalidOperationException("Select a conversation first.");
+        if (string.IsNullOrWhiteSpace(_searchInput.Text))
+            throw new ArgumentException("Enter a message search query.");
+        var results = await _api.SearchDirectMessagesAsync(id, _searchInput.Text.Trim());
+        _searchResults.ItemsSource = results.Items
+            .Select(m => new MessageEntry(m, m.SenderUserId == _connection.Session.UserId))
+            .ToArray();
+        _status.Text = $"{results.Items.Count} matching persisted messages.";
+    }
+
+    private async Task UpdatePreferenceAsync(bool togglePin)
+    {
+        if (_conversationId is not { } id)
+            throw new InvalidOperationException("Select a conversation first.");
+        var current = _preference ??
+            await _api.GetDirectConversationPreferenceAsync(id);
+        _preference = await _api.UpdateDirectConversationPreferenceAsync(
+            id, new UpdateDirectConversationPreferenceRequest(
+                togglePin ? !current.IsPinned : current.IsPinned,
+                current.MutedUntilUtc,
+                togglePin ? current.IsArchived : !current.IsArchived));
+        _pin.Content = _preference.IsPinned ? "Unpin conversation" : "Pin conversation";
+        _archive.Content = _preference.IsArchived ? "Unarchive conversation" : "Archive conversation";
+        await RefreshListsAsync();
     }
 
     private async Task RefreshAfterReconnectAsync()
@@ -281,6 +426,9 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         _send.IsEnabled = !_busy && !_disposed && _conversationId is not null;
         _reloadThread.IsEnabled = !_busy && !_disposed && _conversationId is not null;
         _older.IsEnabled = !_busy && !_disposed && _olderBeforeMessageId is not null;
+        foreach (var button in new[] { _searchButton, _reply, _edit, _delete,
+            _receipts, _pin, _archive })
+            button.IsEnabled = !_busy && !_disposed && _conversationId is not null;
     }
 
     public async ValueTask DisposeAsync()
