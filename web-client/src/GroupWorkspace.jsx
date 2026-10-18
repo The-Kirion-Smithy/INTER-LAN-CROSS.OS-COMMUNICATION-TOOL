@@ -93,14 +93,15 @@ export default function GroupWorkspace({ session, onSessionLost }) {
   }
 
   async function mutate(action, success) {
-    if (busyAction) return;
+    if (busyAction) return false;
     setBusyAction(true);
     setError("");
     setMessage("");
     try {
       await action();
       refreshed(success);
-    } catch (error) { report(error); }
+      return true;
+    } catch (error) { report(error); return false; }
     finally { setBusyAction(false); }
   }
 
@@ -123,9 +124,14 @@ export default function GroupWorkspace({ session, onSessionLost }) {
 
   async function addPerson(user) {
     if (!details || !user?.userId) return;
-    await mutate(() => groupsApi.addMember(token, details.groupId, user.userId, newRole), "Group member added.");
-    setDirectoryQuery("");
-    setDirectoryUsers([]);
+    const applied = await mutate(
+      () => groupsApi.addMember(token, details.groupId, user.userId, isOwner ? newRole : "MEMBER"),
+      "Group member added."
+    );
+    if (applied) {
+      setDirectoryQuery("");
+      setDirectoryUsers([]);
+    }
   }
 
   async function removePerson(member) {
@@ -232,8 +238,8 @@ export default function GroupWorkspace({ session, onSessionLost }) {
           </div>}
 
           <div className="group-events">
-            <h3>Recent group activity</h3>
-            {events.length === 0 && <p className="muted">No events in the first server page.</p>}
+            <h3>Group activity (first 100 events)</h3>
+            {events.length === 0 && <p className="muted">No events in the current page.</p>}
             {events.map(event => <div className="group-event" key={event.groupEventId}>
               <strong>{String(event.eventType || "Group event").replaceAll("_", " ").toLowerCase()}</strong>
               <time dateTime={event.createdUtc}>{new Date(event.createdUtc).toLocaleString()}</time>
