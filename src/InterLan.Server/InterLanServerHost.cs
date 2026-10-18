@@ -83,8 +83,10 @@ public static class InterLanServerHost
         builder.Services.AddSingleton<IServerIdentityStore, SqliteServerIdentityStore>();
         builder.Services.AddSingleton<EnrollmentStore>();
         builder.Services.AddSingleton<ChatStore>();
+        builder.Services.AddSingleton<GroupStore>();
         builder.Services.AddSingleton<RealtimeConnectionRegistry>();
         builder.Services.AddSingleton<RealtimeTicketStore>();
+        builder.Services.AddSingleton<TypingDispatchGate>();
         builder.Services.AddHostedService<LanDiscoveryBroadcaster>();
         builder.Services.AddSignalR();
         builder.Services.AddProblemDetails();
@@ -136,6 +138,7 @@ public static class InterLanServerHost
         app.MapInterLanSystemEndpoints();
         app.MapInterLanEnrollmentEndpoints();
         app.MapInterLanMessagingEndpoints();
+        app.MapInterLanGroupEndpoints();
 
         app.MapHub<ControlHub>("/hubs/control");
         app.MapHub<ChatHub>("/hubs/chat");
