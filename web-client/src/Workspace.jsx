@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, explainApiError } from "./api/client.js";
 import { secureId } from "./auth/enrollment.js";
 import { createRealtime } from "./realtime/connection.js";
+import GroupWorkspace from "./GroupWorkspace.jsx";
 
 const sortMessages = (a, b) => (Date.parse(a.createdUtc) - Date.parse(b.createdUtc)) ||
   String(a.messageId).localeCompare(String(b.messageId));
@@ -399,7 +400,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
             </form>
           </>}
           {section === "people" && <div className="empty-state"><div className="empty-icon" aria-hidden="true">◎</div><h2>Real user directory</h2><p>Search by name or username to create or open a server-authorized direct conversation.</p></div>}
-          {section === "groups" && <div className="empty-state"><div className="empty-icon" aria-hidden="true">♧</div><h2>Group conversations</h2><p>Group membership, roles, and messages must be supplied by the owner server. This mainline backend has no public group routes yet; the browser cannot create or fake memberships.</p></div>}
+          {section === "groups" && <GroupWorkspace session={session} onSessionLost={onSessionLost} />}
           {section === "files" && <div className="empty-state"><div className="empty-icon" aria-hidden="true">▤</div><h2>Shared files</h2><p>Uploads and downloads require server-enforced attachment association, size policy, and authorization. File selection is disabled until these routes exist.</p></div>}
           {section === "settings" && <div className="settings-panel">
             <h2>Session & device security</h2><p className="muted">Signed in as {session.displayName || "Approved user"} · {session.role || "Member"} · {serverName}</p>
