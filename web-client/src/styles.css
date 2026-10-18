@@ -130,3 +130,79 @@ button:focus-visible {
   outline: 3px solid #93c5fd;
   outline-offset: 3px;
 }
+
+
+/* Invite enrollment is an actual server-authorized flow, not a client-side approval. */
+.join-panel {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  margin-top: 22px;
+  border: 1px solid #273244;
+  border-radius: 16px;
+  background: #111827;
+}
+
+.join-panel h2 {
+  margin: 0;
+  color: #f9fafb;
+  font-size: 1.3rem;
+}
+
+.join-panel p {
+  color: #a9b6c8;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.join-panel label {
+  display: grid;
+  gap: 7px;
+  color: #d1d5db;
+  font-size: 0.93rem;
+  font-weight: 600;
+}
+
+.join-panel input {
+  display: block;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  background: #0b1220;
+  color: #f8fafc;
+  border: 1px solid #41516a;
+  border-radius: 10px;
+}
+
+.join-panel input:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.join-panel button {
+  padding: 10px 16px;
+  cursor: pointer;
+}
+
+.join-panel button:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+.join-panel .notice, .notice {
+  color: #cbd5e1;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.error-text {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #be4444;
+  background: #321b24;
+  color: #fca5a5;
+}
+
+@media (max-width: 520px) {
+  .join-panel { padding: 18px; }
+}
