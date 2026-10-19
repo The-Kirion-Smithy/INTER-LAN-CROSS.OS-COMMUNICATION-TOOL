@@ -148,6 +148,7 @@ export default function FileWorkspace({ session, onSessionLost }) {
     setError("");
     try {
       const content = await attachmentsApi.download(token, file.attachmentId);
+      if (groupRef.current !== originalScope) return;
       // Downloaded bytes must match the owner server's authorized, durable
       // digest before being exposed to the user's filesystem.
       if (!globalThis.crypto?.subtle ||
@@ -160,6 +161,9 @@ export default function FileWorkspace({ session, onSessionLost }) {
       if (actual.toLowerCase() !== file.sha256.toLowerCase()) {
         throw new ApiError(422, "Attachment integrity check failed. Download refused.");
       }
+      // Digest work can finish after a conversation switch. Never surface an
+      // older scope's private file under the new selection.
+      if (groupRef.current !== originalScope) return;
       const url = URL.createObjectURL(content);
       try {
         const anchor = document.createElement("a");
