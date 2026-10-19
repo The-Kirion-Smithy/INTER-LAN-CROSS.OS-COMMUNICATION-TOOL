@@ -136,6 +136,18 @@ public static class InterLanServerHost
         var app = builder.Build();
 
         app.UseExceptionHandler();
+        // Private owner-hosted UI must not be framed by another origin or leak
+        // its private LAN URL through outbound browser Referer headers.
+        app.Use(async (context, next) =>
+        {
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers["X-Frame-Options"] = "DENY";
+                context.Response.Headers["Referrer-Policy"] = "no-referrer";
+                return Task.CompletedTask;
+            });
+            await next();
+        });
         // Authenticated LAN API responses contain session and conversation
         // data. Never permit browser/proxy caching across logout or revocation.
         // This intentionally does not change caching of static web assets.
