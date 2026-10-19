@@ -1,6 +1,6 @@
 # Authorized attachment transfer contract (FILES-001)
 
-**Implementation candidate:** issue #106; consult the actual merge state before treating this contract as deployed. The authoritative implementation lives in `src/InterLan.Server/AttachmentEndpointMappings.cs`, `src/InterLan.Infrastructure/AttachmentStore.cs`, `src/InterLan.Contracts/ChatContracts.cs`, and migration `009_authorized_attachment_scopes.sql`.
+**Implemented source:** server storage and routes merged by PR #107; scoped history listing by #137; browser group/direct file workspace by #143 and #150. A successful merge/build is not evidence of a completed production deployment. The authoritative implementation lives in `src/InterLan.Server/AttachmentEndpointMappings.cs`, `src/InterLan.Infrastructure/AttachmentStore.cs`, `src/InterLan.Contracts/ChatContracts.cs`, and migration `009_authorized_attachment_scopes.sql`.
 
 ## HTTPS authentication and scope
 
@@ -25,6 +25,31 @@ For direct messages, use `POST /api/v1/direct/{conversationId}/attachments` with
 
 This returns an `AttachmentResponse` with `attachmentId`, `scopeType`, `scopeId`, `uploaderUserId`, `originalFilename`, `mimeType`, `byteSize`, `sha256`, `createdUtc` and `archiveState`. Only presently authorized members can retrieve it. Legacy attachment rows without verified scope remain inaccessible.
 
+**List files in an authorized conversation:**
+
+```http
+GET /api/v1/groups/{groupId}/attachments?limit=50
+Authorization: Bearer <active-session>
+```
+
+Direct conversations use `GET /api/v1/direct/{conversationId}/attachments`
+with the same query contract. The list defaults to 50, with a server-clamped
+page limit of 1–100. A page is an `AttachmentPageResponse` with
+`items`, `nextBeforeAttachmentId` and `hasMore`.
+Items are ordered newest-first by `createdUtc, attachmentId`.
+When `hasMore` is true, pass the previous page's
+`nextBeforeAttachmentId` in `beforeAttachmentId` to retrieve older files.
+The server rejects unknown/foreign scope cursors with 404 and checks active
+membership inside the same SQLite read transaction as list retrieval.
+No unscoped legacy attachments are surfaced by this API.
+
+The current browser Files page offers group or direct-conversation selection,
+scope-specific upload and metadata listing, bounded pages, and authorized
+downloads. Client-side authorization is not trusted. The browser uses a
+server-supplied upload policy, sanitizes inert filename headers, caps
+download streaming memory, verifies each SHA-256 before saving, and never
+persists session credentials in a URL.
+
 **Download:**
 
 `GET /api/v1/attachments/{attachmentId}/content`
@@ -47,9 +72,16 @@ Migration 009 **adds** nullable `scope_type` and `scope_id` to the existing atta
 - Currently unauthorized membership: **403**.
 - Unknown/missing attachment or wrong cursor/scope lookup: **404** where applicable.
 - Invalid display filename, MIME or empty payload: **400**.
-- Declared payload above the upload cap: **413**.
+- Declared **or streamed** payload above the 10 MiB upload cap: **413** (PR #147).
 - Scope quota exceeded: **409**.
 
-Actual runtime verification has **NOT RUN** for this implementation candidate. This first slice does not attach a file to a sent message (`message_id` is initially null), does not implement automatic Telegram archival, does not deduplicate blobs across uploads, and does not provide resumable/chunked uploads or a native/browser UI. `archiveState=PENDING` is schema state, **not proof** that an archival worker exists. Integration issues #34 and #38 require consumers to use the accepted server contract rather than inventing file APIs.
+The server and browser implementations are merged, and their applicable
+P0/P1/P2 source-head GitHub workflows passed in the cited PRs. That **does not**
+establish a completed production environment, a manual upload/revoke/restart
+matrix, or disaster recovery proof. The existing file slice does not attach
+a file to a sent message (`message_id` is initially null), automatically
+archive to Telegram, deduplicate identical blobs, or provide resumable
+uploads. `archiveState=PENDING` is schema state, **not proof** an archival
+worker exists. Desktop/native file UX remains a separate scope.
 
 **Security acceptance:** test revocation, HTTP streaming cancellation, unauthorized group/direct access, quota races, crash restoration, migration upgrades and MIME/download behavior before enabling production transfer.
