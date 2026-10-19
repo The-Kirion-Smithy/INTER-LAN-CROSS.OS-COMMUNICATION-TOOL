@@ -131,6 +131,24 @@ public static class InterLanServerHost
         var app = builder.Build();
 
         app.UseExceptionHandler();
+        // Authenticated LAN API responses contain session and conversation
+        // data. Never permit browser/proxy caching across logout or revocation.
+        // This intentionally does not change caching of static web assets.
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api/v1"))
+            {
+                context.Response.OnStarting(() =>
+                {
+                    context.Response.Headers["Cache-Control"] = "no-store";
+                    context.Response.Headers["Pragma"] = "no-cache";
+                    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                    return Task.CompletedTask;
+                });
+            }
+
+            await next();
+        });
         app.UseRateLimiter();
         app.UseDefaultFiles();
         app.UseStaticFiles();
