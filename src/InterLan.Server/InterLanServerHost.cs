@@ -52,10 +52,8 @@ public static class InterLanServerHost
 
         var database = new SqliteDatabase(Path.Combine(dataDirectory, "interlan.db"));
         await database.InitializeAsync(cancellationToken);
-        // Repair only unreachable staged/orphan blobs before serving traffic.
-        // A referenced attachment is never removed by startup recovery.
-        await new AttachmentStore(database)
-            .RecoverInterruptedUploadsAsync(cancellationToken);
+        // Repair only unreachable orphan attachment blobs at owner startup.
+        await new AttachmentStore(database).RecoverInterruptedUploadsAsync(cancellationToken);
 
         var persistedSettings = await new ServerSettingsStore(database)
             .LoadAsync(dataDirectory, cancellationToken);
@@ -88,6 +86,8 @@ public static class InterLanServerHost
         builder.Services.AddSingleton<EnrollmentStore>();
         builder.Services.AddSingleton<ChatStore>();
         builder.Services.AddSingleton<GroupStore>();
+        builder.Services.AddSingleton<GroupMessageStore>();
+        builder.Services.AddSingleton<GroupMessageDeliveryGate>();
         builder.Services.AddSingleton<AttachmentStore>();
         builder.Services.AddSingleton<RealtimeConnectionRegistry>();
         builder.Services.AddSingleton<RealtimeTicketStore>();
@@ -136,6 +136,24 @@ public static class InterLanServerHost
         var app = builder.Build();
 
         app.UseExceptionHandler();
+        // Authenticated LAN API responses contain session and conversation
+        // data. Never permit browser/proxy caching across logout or revocation.
+        // This intentionally does not change caching of static web assets.
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api/v1"))
+            {
+                context.Response.OnStarting(() =>
+                {
+                    context.Response.Headers["Cache-Control"] = "no-store";
+                    context.Response.Headers["Pragma"] = "no-cache";
+                    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+                    return Task.CompletedTask;
+                });
+            }
+
+            await next();
+        });
         app.UseRateLimiter();
         app.UseDefaultFiles();
         app.UseStaticFiles();
