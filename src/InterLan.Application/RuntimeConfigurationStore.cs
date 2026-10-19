@@ -19,8 +19,17 @@ public sealed class RuntimeConfigurationStore
         }
 
         await using var stream = File.OpenRead(path);
-        return await JsonSerializer.DeserializeAsync<RuntimeConfiguration>(stream, JsonOptions, cancellationToken)
-            ?? RuntimeConfiguration.Unconfigured;
+        var configuration = await JsonSerializer.DeserializeAsync<RuntimeConfiguration>(
+            stream, JsonOptions, cancellationToken)
+            ?? throw new InvalidDataException(
+                "Existing INTER-LAN runtime configuration cannot be null.");
+
+        var errors = configuration.Validate();
+        if (errors.Count > 0)
+            throw new InvalidDataException(
+                $"Existing INTER-LAN runtime configuration is invalid: {string.Join("; ", errors)}");
+
+        return configuration;
     }
 
     public async Task SaveAsync(
