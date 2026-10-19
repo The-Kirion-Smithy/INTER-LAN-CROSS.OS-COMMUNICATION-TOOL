@@ -10,46 +10,52 @@ The script at [Invoke-InterLanPrBatch.ps1](Invoke-InterLanPrBatch.ps1) executes 
 - Each feature/documentation delta must have a useful independently describable purpose. Do **not** split one README wording tweak into dozens of counter PRs or reuse a previously merged Jane/Nox/Lucien branch.
 - No CI or tests are run; skipping checks is not evidence that a release is safe.
 
-## Queue JSON
+## Existing ready.json and automatic discovery
 
-The shipped `pr-queue.example.json` deliberately contains `[]`; an empty queue causes zero writes. Create a different file outside source control, e.g. `ready.json`, containing records **only after** a worker has finished and pushed each issue-linked change.
+The repository ships scripts/ready.json, initially containing []. This file exists after pulling the latest main. The discovery script Build-InterLanReadyQueue.ps1 refreshes it using **real** unsubmitted GitHub branches that have a current nonempty diff, a linked open issue, and no previously submitted PR. It creates **zero GitHub issues, branches, commits or PRs**.
 
-Example **format only**, not an assertion that these example refs exist:
+### First: populate and preview
 
-```json
+~~~powershell
+Set-Location "$HOME\Dev\INTER-LAN"
+git pull --ff-only origin main
+.\scripts\Build-InterLanReadyQueue.ps1
+.\scripts\Invoke-InterLanPrBatch.ps1 -QueuePath .\scripts\ready.json -Target 850
+~~~
+
+The queue generator checks the actual GitHub branch list and compares every possible new source branch to the latest main. Branches already submitted as PRs (open or merged), behind main, closed issues, and branches with no genuine changed files are excluded. An empty queue is a normal result if the source workers have not pushed distinct new work.
+
+### JSON queue format
+
+~~~json
 [
   {
     "issue": 123,
-    "branch": "KIRCH-INTERLAN-123-REAL-CHANGE",
-    "title": "docs(api): explain an implemented recovery behavior",
-    "summary": "Documents the server behavior from current code, including a specific failure and safe recovery procedure."
+    "branch": "KIRCH-INTERLAN-123-ACTUAL-SOURCE-FIX",
+    "title": "fix(web): correct a confirmed session bug (#123)",
+    "summary": "Concrete changed behavior and affected source paths",
+    "headSha": "source-SHA-when-discovered"
   }
 ]
-```
+~~~
 
-A real queue should contain independent entries by Jane (backend), Lucien (web/documentation), Nox (native) or Kirch. Original commit authorship stays unchanged; opening the PR as Kirch is a separate action.
+These sample values are illustrative, not existing GitHub work. Workers can produce additional real issues and branches, then refresh the queue. Source author credit remains with the actual worker.
 
-## Commands
+### When actual candidates have been reviewed
 
-Preview only (default: no GitHub writes):
+Open Kirch-owned PRs but do not merge:
 
-```powershell
-pwsh ./scripts/Invoke-InterLanPrBatch.ps1 -QueuePath ./ready.json -Target 850
-```
+~~~powershell
+.\scripts\Invoke-InterLanPrBatch.ps1 -QueuePath .\scripts\ready.json -Target 850 -Execute
+~~~
 
-Open Kirch-owned PRs but leave them unmerged:
+Open and request sequential normal merges with a source-head SHA lease:
 
-```powershell
-pwsh ./scripts/Invoke-InterLanPrBatch.ps1 -QueuePath ./ready.json -Target 850 -Execute
-```
+~~~powershell
+.\scripts\Invoke-InterLanPrBatch.ps1 -QueuePath .\scripts\ready.json -Target 850 -Execute -Merge
+~~~
 
-Open and request normal merges for each ready entry:
-
-```powershell
-pwsh ./scripts/Invoke-InterLanPrBatch.ps1 -QueuePath ./ready.json -Target 850 -Execute -Merge
-```
-
-A merge uses an **exact source HEAD SHA** lease and GitHub's merge endpoint; if a worker pushes more commits before merge, the operation stops rather than integrating unseen work. Existing PRs, closed issues, branches with zero changed files, and already-included diffs are skipped. The runner stops at queue exhaustion or when the requested new-merge count is reached, whichever occurs first. It does not fabricate additional changes or trigger more workers.
+850 is a ceiling. An empty queue creates zero PRs and does not repeatedly change README. The batch runner does not run CI or tests. No runtime or security acceptance is implied by a merge.
 
 ## Relationship to GitHub achievements
 
