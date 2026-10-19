@@ -57,6 +57,6 @@ PRs are attributed to the GitHub account that creates them. Only **merged qualif
 
 ## Parallel work coordination
 
-[Campaign issue #16](../../issues/16) tracks shared authority. Lucien's [PR queue issue #63](../../issues/63) collects new candidate branches and their exact SHAs; Jane's backend [issue #35](../../issues/35) and Nox's native parent [issue #19](../../issues/19) track distinct substantive code. An assigned GitHub issue **does not automatically start an external agent**. Someone must execute each coding session and publish changes before the runner can process them.
+[Campaign issue #16](../../../issues/16) tracks shared authority. Lucien's [PR queue issue #63](../../../issues/63) collects new candidate branches and their exact SHAs; Jane's backend [issue #35](../../../issues/35) and Nox's native parent [issue #19](../../../issues/19) track distinct substantive code. An assigned GitHub issue **does not automatically start an external agent**. Someone must execute each coding session and publish changes before the runner can process them.
 
 **Verification:** This runner has not been executed against GitHub CLI as part of this code-first dispatch; build/tests/CI are NOT RUN.
