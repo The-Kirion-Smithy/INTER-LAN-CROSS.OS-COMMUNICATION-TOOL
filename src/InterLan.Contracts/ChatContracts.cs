@@ -190,3 +190,20 @@ public sealed record GroupEventResponse(
     string EventType,
     string PayloadJson,
     DateTimeOffset CreatedUtc);
+
+public sealed record AttachmentUploadPolicyResponse(
+    long MaxUploadBytes,
+    long MaxScopeBytes,
+    string UploadProtocol);
+
+public sealed record AttachmentResponse(
+    Guid AttachmentId,
+    string ScopeType,
+    Guid ScopeId,
+    Guid UploaderUserId,
+    string OriginalFilename,
+    string MimeType,
+    long ByteSize,
+    string Sha256,
+    DateTimeOffset CreatedUtc,
+    string ArchiveState);

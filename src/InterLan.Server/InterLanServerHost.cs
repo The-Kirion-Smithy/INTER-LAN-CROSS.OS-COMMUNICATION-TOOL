@@ -52,6 +52,8 @@ public static class InterLanServerHost
 
         var database = new SqliteDatabase(Path.Combine(dataDirectory, "interlan.db"));
         await database.InitializeAsync(cancellationToken);
+        // Repair only unreachable orphan attachment blobs at owner startup.
+        await new AttachmentStore(database).RecoverInterruptedUploadsAsync(cancellationToken);
 
         var persistedSettings = await new ServerSettingsStore(database)
             .LoadAsync(dataDirectory, cancellationToken);
@@ -86,6 +88,7 @@ public static class InterLanServerHost
         builder.Services.AddSingleton<GroupStore>();
         builder.Services.AddSingleton<GroupMessageStore>();
         builder.Services.AddSingleton<GroupMessageDeliveryGate>();
+        builder.Services.AddSingleton<AttachmentStore>();
         builder.Services.AddSingleton<RealtimeConnectionRegistry>();
         builder.Services.AddSingleton<RealtimeTicketStore>();
         builder.Services.AddSingleton<TypingDispatchGate>();
@@ -159,6 +162,7 @@ public static class InterLanServerHost
         app.MapInterLanEnrollmentEndpoints();
         app.MapInterLanMessagingEndpoints();
         app.MapInterLanGroupEndpoints();
+        app.MapInterLanAttachmentEndpoints();
 
         app.MapHub<ControlHub>("/hubs/control");
         app.MapHub<ChatHub>("/hubs/chat");
