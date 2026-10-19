@@ -40,6 +40,7 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
   const [messageBusy, setMessageBusy] = useState(false);
   const [messageSendBusy, setMessageSendBusy] = useState(false);
   const activeGroupRef = useRef(null);
+  const pendingGroupSendRef = useRef(null);
   activeGroupRef.current = selectedId;
 
   const report = useCallback(error => {
@@ -93,6 +94,7 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
     setMessageCursor(null);
     setHasNextMessages(false);
     setGroupMessageDraft("");
+    pendingGroupSendRef.current = null;
     if (!selectedId) return;
     const controller = new AbortController();
     setMessageBusy(true);
@@ -130,9 +132,15 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
     setMessageSendBusy(true);
     setError("");
     try {
-      const result = await groupsApi.sendMessage(token, id, secureId(), body);
+      // Keep a stable server idempotency key if the POST commits but its reply
+      // disappears. A retry of the exact same group/body cannot duplicate it.
+      const pending = pendingGroupSendRef.current;
+      const clientMessageId = pending?.groupId === id && pending.body === body
+        ? pending.clientMessageId : secureId();
+      pendingGroupSendRef.current = { groupId: id, body, clientMessageId };
+      const result = await groupsApi.sendMessage(token, id, clientMessageId, body);
+      pendingGroupSendRef.current = null;
       if (activeGroupRef.current !== id) return;
-      // POST returns MessageResponse directly, not a PersistedMessageResult wrapper.
       setGroupMessages(previous => mergeGroupMessages(previous, result?.messageId ? [result] : []));
       setGroupMessageDraft("");
     } catch (error) { if (activeGroupRef.current === id) report(error); }
@@ -384,7 +392,12 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
             <form className="group-message-form" onSubmit={sendGroupMessage}>
               <label>Message this group
                 <textarea value={groupMessageDraft} rows={3} maxLength={4000}
-                  onChange={event => setGroupMessageDraft(event.target.value)}
+                  onChange={event => {
+                    const next = event.target.value;
+                    if (pendingGroupSendRef.current?.body !== next.trim())
+                      pendingGroupSendRef.current = null;
+                    setGroupMessageDraft(next);
+                  }}
                   placeholder="Write to current group members" required />
               </label>
               <button type="submit" disabled={messageSendBusy || !groupMessageDraft.trim()}>
