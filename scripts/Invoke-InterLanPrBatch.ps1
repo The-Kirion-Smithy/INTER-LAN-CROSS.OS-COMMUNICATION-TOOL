@@ -75,9 +75,9 @@ $preview = 0
 $skipped = 0
 $index = 0
 Write-Host "Authenticated as $($identity.login); initial author-merged PR count: $startCount"
-Write-Host "Target new merges: $Target; execute: $Execute; merge: $Merge; queued entries: $($queue.Count)"
+Write-Host "Target processed PR candidates: $Target; execute: $Execute; merge: $Merge; queued entries: $($queue.Count)"
 
-while ($index -lt $queue.Count -and $merged -lt $Target) {
+while ($index -lt $queue.Count -and ($created + $preview) -lt $Target) {
     $item = $queue[$index]
     $index++
     $issueNumber = [int] $item.issue
@@ -101,13 +101,13 @@ while ($index -lt $queue.Count -and $merged -lt $Target) {
     $issue = Invoke-GhJson -Arguments @('api', "repos/$Repo/issues/$issueNumber")
     $isPullRequestIssue = $issue.PSObject.Properties.Name -contains 'pull_request'
     if ($issue.state -ne 'open' -or $isPullRequestIssue) {
-        Write-Warning "Skip #$issueNumber: issue closed or resolves to a pull request."
+        Write-Warning "Skip #${issueNumber}: issue closed or resolves to a pull request."
         $skipped++; continue
     }
     $compare = Invoke-GhJson -Arguments @('api', "repos/$Repo/compare/main...$branch")
     $files = @($compare.files)
     if ([int] $compare.ahead_by -le 0 -or $files.Count -eq 0) {
-        Write-Warning "Skip #$issueNumber: no branch-ahead unmerged file diff."
+        Write-Warning "Skip #${issueNumber}: no branch-ahead unmerged file diff."
         $skipped++; continue
     }
     $previous = @(Invoke-GhJson -Arguments @(
@@ -116,7 +116,7 @@ while ($index -lt $queue.Count -and $merged -lt $Target) {
         '--limit', '100', '--json', 'number,mergedAt,state'
     ))
     if ($previous.Count -gt 0) {
-        Write-Warning "Skip #$issueNumber: branch already submitted as PR #$($previous[0].number)."
+        Write-Warning "Skip #${issueNumber}: branch already submitted as PR #$($previous[0].number)."
         $skipped++; continue
     }
     $branchData = Invoke-GhJson -Arguments @('api', "repos/$Repo/branches/$branch")
@@ -170,5 +170,5 @@ $after = Get-KirchMergedPrCount
 Write-Host "BATCH SUMMARY: opened=$created; merged=$merged; preview-ready=$preview; skipped=$skipped."
 Write-Host "GitHub search author-merged count: $startCount => $after (badge eligibility can differ)."
 if ($index -ge $queue.Count -and $merged -lt $Target) {
-    Write-Warning "Queue exhausted: $merged / $Target requested new merges achieved. No filler PRs were made."
+    Write-Warning "Queue exhausted: $merged merges from $created opened PRs and $preview preview-ready entries; target $Target. No filler PRs were made."
 }
