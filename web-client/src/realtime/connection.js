@@ -17,6 +17,7 @@ export function createRealtime({ token, onEvent, onState, onCatchUp, onUnauthori
   let attempt = 0;
   let connectedOnce = false;
   let connected = false;
+  let requestingTicket = false;
   let buffer = "";
 
   const status = (state, detail) => { if (!closed) onState(state, detail); };
@@ -37,9 +38,10 @@ export function createRealtime({ token, onEvent, onState, onCatchUp, onUnauthori
   }
 
   async function connect() {
-    if (closed) return;
+    if (closed || requestingTicket) return;
     clearTimers();
     if (navigator.onLine === false) { scheduleRetry(); return; }
+    requestingTicket = true;
     const current = ++generation;
     status(connectedOnce ? "reconnecting" : "connecting");
     try {
@@ -103,12 +105,19 @@ export function createRealtime({ token, onEvent, onState, onCatchUp, onUnauthori
       } else {
         scheduleRetry();
       }
+    } finally {
+      // Also cover a visibility/online event during the asynchronous ticket
+      // request, before a WebSocket object even exists.
+      if (current === generation) requestingTicket = false;
     }
   }
 
   function wake() {
-    if (closed || socket?.readyState === WebSocket.OPEN || document.hidden) return;
+    if (closed || requestingTicket || document.hidden ||
+        socket?.readyState === WebSocket.CONNECTING ||
+        socket?.readyState === WebSocket.OPEN) return;
     clearTimeout(retryTimer);
+    retryTimer = null;
     connect();
   }
 
