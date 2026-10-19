@@ -65,7 +65,9 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
   const remaining = Math.max(0, Math.ceil((Date.parse(session.expiresUtc) - now) / 60000));
 
   const failIfUnauthorized = useCallback((error) => {
-    if (error?.status === 401 || error?.status === 403) {
+    // HTTP 403 is a resource-scoped permission failure (e.g. group removal),
+    // not proof that the bearer session itself was revoked. Only 401 signs out.
+    if (error?.status === 401) {
       onSessionLost("The owner server ended or revoked this session.");
       return true;
     }
