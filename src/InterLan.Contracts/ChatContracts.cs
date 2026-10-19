@@ -207,3 +207,8 @@ public sealed record AttachmentResponse(
     string Sha256,
     DateTimeOffset CreatedUtc,
     string ArchiveState);
+
+public sealed record AttachmentPageResponse(
+    IReadOnlyList<AttachmentResponse> Items,
+    Guid? NextBeforeAttachmentId,
+    bool HasMore);
