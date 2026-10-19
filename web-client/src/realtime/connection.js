@@ -71,8 +71,21 @@ export function createRealtime({ token, onEvent, onState, onCatchUp, onUnauthori
           if (!raw) continue;
           let data;
           try { data = JSON.parse(raw); } catch { ws.close(); return; }
+          // A SignalR frame must be an object, never null/array/primitive.
+          // Malformed or pre-handshake invocations cannot establish a session.
+          if (!data || typeof data !== "object" || Array.isArray(data)) {
+            ws.close();
+            return;
+          }
           if (!handshaken) {
-            if (data.error) { ws.close(); return; }
+            const keys = Object.keys(data);
+            const validHandshake = keys.every(key => key === "minorVersion") &&
+              (data.minorVersion === undefined ||
+                (Number.isInteger(data.minorVersion) && data.minorVersion >= 0));
+            if (!validHandshake) {
+              ws.close();
+              return;
+            }
             handshaken = true;
             connected = true;
             attempt = 0;
