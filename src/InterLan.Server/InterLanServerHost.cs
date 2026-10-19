@@ -84,6 +84,8 @@ public static class InterLanServerHost
         builder.Services.AddSingleton<EnrollmentStore>();
         builder.Services.AddSingleton<ChatStore>();
         builder.Services.AddSingleton<GroupStore>();
+        builder.Services.AddSingleton<GroupMessageStore>();
+        builder.Services.AddSingleton<GroupMessageDeliveryGate>();
         builder.Services.AddSingleton<RealtimeConnectionRegistry>();
         builder.Services.AddSingleton<RealtimeTicketStore>();
         builder.Services.AddSingleton<TypingDispatchGate>();
