@@ -28,6 +28,9 @@ export async function requestJson(path, { method = "GET", token, body, signal, t
   if (typeof path !== "string" || !path.startsWith("/api/v1/") || path.startsWith("//")) {
     throw new TypeError("Only same-origin InterLan API paths are allowed.");
   }
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new RangeError("Request timeout must be a positive finite duration.");
+  }
   const url = new URL(path, window.location.origin);
   if (url.origin !== window.location.origin || !url.pathname.startsWith("/api/v1/")) {
     throw new TypeError("Cross-origin API requests are not allowed.");
