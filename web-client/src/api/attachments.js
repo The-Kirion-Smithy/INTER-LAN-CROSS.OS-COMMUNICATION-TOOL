@@ -18,7 +18,7 @@ const attachmentPath = (id) => "/api/v1/attachments/" + uuid(id);
 // HTTP headers require safe single-line ASCII. The server also normalizes
 // filename metadata and forces downloaded content to attachment disposition.
 function displayFilename(name) {
-  const cleaned = String(name || "attachment").replace(/[\\/\r\n\x00-\x1f\x7f-\xff]/g, "_").slice(0, 160).trim();
+  const cleaned = String(name || "attachment").replace(/[\\/\r\n\x00-\x1f\x7f-\xff]/g, "_").slice(0, 120).trim();
   return cleaned || "attachment";
 }
 
