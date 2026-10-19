@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { attachmentsApi } from "./api/attachments.js";
 import { groupsApi } from "./api/groups.js";
-import { explainApiError } from "./api/client.js";
+import { api, explainApiError } from "./api/client.js";
 import "./FileWorkspace.css";
 
 const mergeFiles = (before, incoming) => {
@@ -19,7 +19,10 @@ const sizeLabel = bytes => Number.isFinite(Number(bytes))
 export default function FileWorkspace({ session, onSessionLost }) {
   const token = session.bearerToken;
   const [groups, setGroups] = useState([]);
-  const [groupId, setGroupId] = useState(null);
+  const [directChats, setDirectChats] = useState([]);
+  const [selectedScope, setSelectedScope] = useState({ type: "GROUP", id: null });
+  const scopeType = selectedScope.type;
+  const groupId = selectedScope.id;
   const [files, setFiles] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [hasMore, setHasMore] = useState(false);
@@ -32,7 +35,7 @@ export default function FileWorkspace({ session, onSessionLost }) {
   const [refresh, setRefresh] = useState(0);
   const groupRef = useRef(null);
   const fileInputRef = useRef(null);
-  groupRef.current = groupId;
+  groupRef.current = scopeType + ":" + groupId;
 
   const report = useCallback(error => {
     if (error?.status === 401) onSessionLost("The owner server ended your session.");
@@ -41,13 +44,25 @@ export default function FileWorkspace({ session, onSessionLost }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    groupsApi.list(token, controller.signal)
-      .then(data => {
+    Promise.all([
+      groupsApi.list(token, controller.signal),
+      api.inbox(token, controller.signal)
+    ])
+      .then(([groupData, directData]) => {
         if (controller.signal.aborted) return;
-        const list = Array.isArray(data) ? data : [];
+        const list = Array.isArray(groupData) ? groupData : [];
+        const direct = Array.isArray(directData) ? directData : [];
         setGroups(list);
-        setGroupId(previous => list.some(g => g.groupId === previous)
-          ? previous : list[0]?.groupId || null);
+        setDirectChats(direct);
+        setSelectedScope(previous => {
+          const valid = previous.type === "GROUP"
+            ? list.some(g => g.groupId === previous.id)
+            : direct.some(c => c.conversationId === previous.id);
+          if (valid) return previous;
+          return list[0] ? { type: "GROUP", id: list[0].groupId }
+            : direct[0] ? { type: "DIRECT", id: direct[0].conversationId }
+            : { type: "GROUP", id: null };
+        });
       })
       .catch(error => { if (!controller.signal.aborted) report(error); });
     return () => controller.abort();
@@ -60,7 +75,7 @@ export default function FileWorkspace({ session, onSessionLost }) {
     if (!groupId) return;
     const controller = new AbortController();
     setBusy(true);
-    attachmentsApi.list(token, "GROUP", groupId, null, controller.signal)
+    attachmentsApi.list(token, scopeType, groupId, null, controller.signal)
       .then(page => {
         if (controller.signal.aborted) return;
         setFiles(mergeFiles([], page?.items));
@@ -71,20 +86,20 @@ export default function FileWorkspace({ session, onSessionLost }) {
       .catch(error => { if (!controller.signal.aborted) report(error); })
       .finally(() => { if (!controller.signal.aborted) setBusy(false); });
     return () => controller.abort();
-  }, [token, groupId, refresh, report]);
+  }, [token, scopeType, groupId, refresh, report]);
 
   async function loadMore() {
     const id = groupId;
     if (!id || !cursor || !hasMore || busy) return;
     setBusy(true);
     try {
-      const page = await attachmentsApi.list(token, "GROUP", id, cursor);
-      if (groupRef.current !== id) return;
+      const page = await attachmentsApi.list(token, scopeType, id, cursor);
+      if (groupRef.current !== scopeType + ":" + id) return;
       setFiles(previous => mergeFiles(previous, page?.items));
       setCursor(page?.nextBeforeAttachmentId || null);
       setHasMore(Boolean(page?.hasMore));
-    } catch (failure) { if (groupRef.current === id) report(failure); }
-    finally { if (groupRef.current === id) setBusy(false); }
+    } catch (failure) { if (groupRef.current === scopeType + ":" + id) report(failure); }
+    finally { if (groupRef.current === scopeType + ":" + id) setBusy(false); }
   }
 
   async function upload(event) {
@@ -95,14 +110,14 @@ export default function FileWorkspace({ session, onSessionLost }) {
     setError("");
     setNotice("");
     try {
-      const saved = await attachmentsApi.upload(token, "GROUP", id, file);
-      if (groupRef.current !== id) return;
+      const saved = await attachmentsApi.upload(token, scopeType, id, file);
+      if (groupRef.current !== scopeType + ":" + id) return;
       setFiles(previous => mergeFiles(previous, [saved]));
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setNotice("Saved to the owner server. Available to current group members.");
-    } catch (failure) { if (groupRef.current === id) report(failure); }
-    finally { if (groupRef.current === id) setUploading(false); }
+      setNotice("Saved to the owner server. Available to current conversation members.");
+    } catch (failure) { if (groupRef.current === scopeType + ":" + id) report(failure); }
+    finally { if (groupRef.current === scopeType + ":" + id) setUploading(false); }
   }
 
   async function download(file) {
@@ -128,22 +143,35 @@ export default function FileWorkspace({ session, onSessionLost }) {
     finally { setDownloading(null); }
   }
 
-  return <section className="files-workspace" aria-label="Shared group files">
+  return <section className="files-workspace" aria-label="Shared conversation files">
     <header className="files-header">
       <div><span className="form-kicker">PRIVATE LAN / AUTHORIZED ATTACHMENTS</span>
-        <h2>Shared group files</h2>
-        <p>File metadata and bytes are served only to current members by the owner server.</p>
+        <h2>Shared files</h2>
+        <p>Only current group or direct-conversation members can access stored files.</p>
       </div>
       <button type="button" className="quiet-button" onClick={() => setRefresh(value => value + 1)}>Refresh</button>
     </header>
     {error && <p role="alert" className="inline-error">{error}</p>}
     {notice && <p role="status" className="inline-notice">{notice}</p>}
     <div className="files-controls">
-      <label>Group
-        <select value={groupId || ""} onChange={event => setGroupId(event.target.value || null)}
-          disabled={!groups.length}>
-          {groups.length === 0 && <option value="">No authorized groups</option>}
-          {groups.map(group => <option value={group.groupId} key={group.groupId}>{group.name}</option>)}
+      <label>Conversation
+        <select value={groupId ? scopeType + ":" + groupId : ""}
+          onChange={event => {
+            const [kind, id] = event.target.value.split(":");
+            if ((kind === "GROUP" && groups.some(g => g.groupId === id)) ||
+                (kind === "DIRECT" && directChats.some(c => c.conversationId === id))) {
+              setSelectedScope({ type: kind, id });
+            }
+          }} disabled={!groups.length && !directChats.length}>
+          {!groups.length && !directChats.length && <option value="">No authorized conversations</option>}
+          <optgroup label="Groups">
+            {groups.map(group => <option value={"GROUP:" + group.groupId} key={group.groupId}>{group.name}</option>)}
+          </optgroup>
+          <optgroup label="Direct conversations">
+            {directChats.map(chat => <option value={"DIRECT:" + chat.conversationId} key={chat.conversationId}>
+              {chat.otherUser?.displayName || chat.otherUser?.username || "Direct conversation"}
+            </option>)}
+          </optgroup>
         </select>
       </label>
       <form onSubmit={upload} className="files-upload-form">
@@ -156,9 +184,10 @@ export default function FileWorkspace({ session, onSessionLost }) {
         </button>
       </form>
     </div>
-    {!groups.length && <p className="empty-copy">Join or create a group to share files.</p>}
+    {!groups.length && !directChats.length &&
+      <p className="empty-copy">Create a group or open a direct conversation to share files.</p>}
     {busy && <p className="muted" role="status">Reading authorized file records…</p>}
-    {!busy && groupId && !files.length && <p className="muted">No uploaded files in this group.</p>}
+    {!busy && groupId && !files.length && <p className="muted">No uploaded files in this conversation.</p>}
     <div className="files-records">
       {files.map(file => <article className="file-record" key={file.attachmentId}>
         <div className="file-details">
