@@ -22,7 +22,8 @@ public sealed record ClientPairingState(
         if (!Uri.TryCreate(ServerUri, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
             errors.Add("ServerUri must be an absolute HTTPS URI.");
-        if (PinnedCertificateSha256.Length != 64 ||
+        if (string.IsNullOrEmpty(PinnedCertificateSha256) ||
+            PinnedCertificateSha256.Length != 64 ||
             !PinnedCertificateSha256.All(Uri.IsHexDigit))
             errors.Add("PinnedCertificateSha256 must be 64 hexadecimal characters.");
         if (string.IsNullOrWhiteSpace(DeviceCredential))
