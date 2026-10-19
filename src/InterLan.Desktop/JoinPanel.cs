@@ -86,8 +86,12 @@ internal sealed class JoinPanel : UserControl, IDisposable
         panel.Children.Add(new TextBlock
         {
             Text = OperatingSystem.IsWindows()
-                ? "Windows pairing credentials are encrypted using the existing DPAPI-backed client pairing store."
-                : "Pairing is disabled on this OS: the current Linux/macOS pairing store keeps its encryption key alongside the ciphertext. A protected keychain adapter is required before durable pairing is enabled.",
+                ? "Windows: DPAPI protects the local pairing encryption key."
+                : OperatingSystem.IsMacOS()
+                    ? "macOS: the native Keychain protects the pairing key. A locked or unavailable Keychain fails closed."
+                    : OperatingSystem.IsLinux()
+                        ? "Linux: Secret Service via /usr/bin/secret-tool protects the key. An available, unlocked secret vault and desktop D-Bus session are required; no raw-key fallback."
+                        : "Durable pairing is unsupported on this platform.",
             TextWrapping = TextWrapping.Wrap,
             Opacity = 0.75
         });
@@ -103,7 +107,9 @@ internal sealed class JoinPanel : UserControl, IDisposable
         _logout.Click += async (_, _) => await ExecuteAsync(LogoutAsync);
         _rotate.Click += async (_, _) => await ExecuteAsync(RotateCredentialAsync);
 
-        _status.Text = "No verified server or active paired device. Manual HTTPS enrollment is available on Windows.";
+        _status.Text = ClientPairingStateStore.HasPlatformProtectedKeyVault
+            ? "No active device. Verify the HTTPS server and confirm OS credential vault access before enrollment."
+            : "No usable native credential vault was detected. Durable pairing is disabled.";
         SetControls();
     }
 
@@ -197,7 +203,7 @@ internal sealed class JoinPanel : UserControl, IDisposable
 
     private async Task RequestAsync()
     {
-        RequireWindowsProtection();
+        RequireNativeProtection();
         var (server, http) = RequireVerified();
         if (string.IsNullOrWhiteSpace(_invite.Text) ||
             string.IsNullOrWhiteSpace(_username.Text) ||
@@ -230,7 +236,7 @@ internal sealed class JoinPanel : UserControl, IDisposable
 
     private async Task ExchangeAsync()
     {
-        RequireWindowsProtection();
+        RequireNativeProtection();
         var (server, http) = RequireVerified();
         if (_pendingId is not { } requestId || string.IsNullOrWhiteSpace(_pendingSecret))
             throw new InvalidOperationException("No outstanding enrollment request in this session.");
@@ -286,7 +292,7 @@ internal sealed class JoinPanel : UserControl, IDisposable
 
     private async Task RestoreAsync()
     {
-        RequireWindowsProtection();
+        RequireNativeProtection();
         var path = ClientPairingStateStore.GetDefaultPath();
         var renewed = await _sessions.LoadAndRenewAsync(path);
         try
@@ -327,7 +333,7 @@ internal sealed class JoinPanel : UserControl, IDisposable
 
     private async Task RotateCredentialAsync()
     {
-        RequireWindowsProtection();
+        RequireNativeProtection();
         if (_connection is null)
             throw new InvalidOperationException("No active device session.");
         var updated = await _sessions.RotateCredentialAsync(
@@ -368,11 +374,11 @@ internal sealed class JoinPanel : UserControl, IDisposable
     private static string PlatformName() => OperatingSystem.IsWindows() ? "Windows" :
         OperatingSystem.IsMacOS() ? "macOS" : OperatingSystem.IsLinux() ? "Linux" : "Unknown";
 
-    private static void RequireWindowsProtection()
+    private static void RequireNativeProtection()
     {
-        if (!OperatingSystem.IsWindows())
+        if (!ClientPairingStateStore.HasPlatformProtectedKeyVault)
             throw new PlatformNotSupportedException(
-                "Durable pairing is disabled until the current OS has a protected credential key store.");
+                "Durable pairing requires DPAPI, macOS Keychain or Linux Secret Service. No local plaintext-key fallback is allowed.");
     }
 
     private void SetControls()
@@ -380,9 +386,11 @@ internal sealed class JoinPanel : UserControl, IDisposable
         _scan.IsEnabled = !_busy;
         _useAdvertisedAddress.IsEnabled = !_busy;
         _verify.IsEnabled = !_busy;
-        _request.IsEnabled = !_busy && _verified is not null && _pendingId is null;
-        _exchange.IsEnabled = !_busy && _pendingId is not null;
-        _restore.IsEnabled = !_busy;
+        _request.IsEnabled = !_busy && ClientPairingStateStore.HasPlatformProtectedKeyVault &&
+            _verified is not null && _pendingId is null;
+        _exchange.IsEnabled = !_busy && ClientPairingStateStore.HasPlatformProtectedKeyVault &&
+            _pendingId is not null;
+        _restore.IsEnabled = !_busy && ClientPairingStateStore.HasPlatformProtectedKeyVault;
         _unpair.IsEnabled = !_busy && _connection is not null;
         _logout.IsEnabled = !_busy && _connection is not null;
         _rotate.IsEnabled = !_busy && _connection is not null;
