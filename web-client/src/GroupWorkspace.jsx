@@ -28,7 +28,9 @@ export default function GroupWorkspace({ session, onSessionLost }) {
   const [newRole, setNewRole] = useState("MEMBER");
 
   const report = useCallback(error => {
-    if (error?.status === 401 || error?.status === 403 && error?.message?.includes("session")) {
+    // A 403 can mean the user lost this group's membership while their
+    // authenticated session remains valid. Keep it local to this workspace.
+    if (error?.status === 401) {
       onSessionLost("Your browser session is no longer authorized.");
     } else {
       setError(explainApiError(error));
