@@ -3,6 +3,7 @@ import { api, explainApiError } from "./api/client.js";
 import { secureId } from "./auth/enrollment.js";
 import { createRealtime } from "./realtime/connection.js";
 import GroupWorkspace from "./GroupWorkspace.jsx";
+import FileWorkspace from "./FileWorkspace.jsx";
 
 const sortMessages = (a, b) => (Date.parse(a.createdUtc) - Date.parse(b.createdUtc)) ||
   String(a.messageId).localeCompare(String(b.messageId));
@@ -411,7 +412,8 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
               </button>)}</div>
             {search.trim() && !peopleBusy && people.length === 0 && !searchError && <p className="empty-copy">No matching users.</p>}
           </div>}
-          {(section === "groups" || section === "files") && <div className="sidebar-body"><p className="empty-copy">Requires group and attachment APIs from the server. No group memberships or files are invented locally.</p></div>}
+          {section === "groups" && <div className="sidebar-body"><p className="empty-copy">Group memberships and message history are controlled by the owner server.</p></div>}
+          {section === "files" && <div className="sidebar-body"><p className="empty-copy">Only current group members can list, upload or download stored files.</p></div>}
           {section === "settings" && <div className="sidebar-body"><p className="empty-copy">Account identity and server session security.</p></div>}
         </aside>
 
@@ -469,7 +471,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
           </>}
           {section === "people" && <div className="empty-state"><div className="empty-icon" aria-hidden="true">◎</div><h2>Real user directory</h2><p>Search by name or username to create or open a server-authorized direct conversation.</p></div>}
           {section === "groups" && <GroupWorkspace session={session} onSessionLost={onSessionLost} />}
-          {section === "files" && <div className="empty-state"><div className="empty-icon" aria-hidden="true">▤</div><h2>Shared files</h2><p>Uploads and downloads require server-enforced attachment association, size policy, and authorization. File selection is disabled until these routes exist.</p></div>}
+          {section === "files" && <FileWorkspace session={session} onSessionLost={onSessionLost} />}
           {section === "settings" && <div className="settings-panel">
             <h2>Session & device security</h2><p className="muted">Signed in as {session.displayName || "Approved user"} · {session.role || "Member"} · {serverName}</p>
             <div className="settings-card"><h3>Current session</h3><p>Expires: {new Date(session.expiresUtc).toLocaleString()}</p><p>Time remaining: {remaining} minute(s)</p><p>Device: {device?.deviceName || session.deviceName || "Browser device"}</p><p>Platform: {device?.platform || "Browser"}</p>
