@@ -38,8 +38,19 @@ export default function FileWorkspace({ session, onSessionLost }) {
   groupRef.current = scopeType + ":" + groupId;
 
   const report = useCallback(error => {
-    if (error?.status === 401) onSessionLost("The owner server ended your session.");
-    else setError(explainApiError(error));
+    if (error?.status === 401) {
+      onSessionLost("The owner server ended your session.");
+      return;
+    }
+    if (error?.status === 403) {
+      // The old scope's metadata is no longer authorized to remain visible.
+      setFiles([]);
+      setCursor(null);
+      setHasMore(false);
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+    setError(explainApiError(error));
   }, [onSessionLost]);
 
   useEffect(() => {
@@ -122,6 +133,7 @@ export default function FileWorkspace({ session, onSessionLost }) {
 
   async function download(file) {
     if (downloading) return;
+    const originalScope = scopeType + ":" + groupId;
     setDownloading(file.attachmentId);
     setError("");
     try {
@@ -139,7 +151,9 @@ export default function FileWorkspace({ session, onSessionLost }) {
       } finally {
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       }
-    } catch (failure) { report(failure); }
+    } catch (failure) {
+      if (groupRef.current === originalScope) report(failure);
+    }
     finally { setDownloading(null); }
   }
 
