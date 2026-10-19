@@ -80,6 +80,9 @@ export default function FileWorkspace({ session, onSessionLost }) {
   }, [token, refresh, report]);
 
   useEffect(() => {
+    // A prior scope's asynchronous paging may still be in flight. Reset
+    // component-level loading before the new scope starts its own fetch.
+    setBusy(false);
     setFiles([]);
     setCursor(null);
     setHasMore(false);
