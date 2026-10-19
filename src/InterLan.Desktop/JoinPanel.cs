@@ -17,14 +17,14 @@ namespace InterLan.Desktop;
 /// </summary>
 internal sealed class JoinPanel : UserControl, IDisposable
 {
-    private readonly TextBox _origin = new() { Watermark = "https://192.168.1.20:7443" };
+    private readonly TextBox _origin = new() { PlaceholderText = "https://192.168.1.20:7443" };
     private readonly ListBox _discovery = new() { Height = 112 };
     private readonly Button _scan = Button("Scan LAN announcements (untrusted)");
     private readonly Button _useAdvertisedAddress = Button("Use selected LAN address (do not trust fingerprint)");
-    private readonly TextBox _fingerprint = new() { Watermark = "64-digit SHA-256 from the owner" };
-    private readonly TextBox _invite = new() { Watermark = "Owner-issued invitation token" };
-    private readonly TextBox _username = new() { Watermark = "Username" };
-    private readonly TextBox _displayName = new() { Watermark = "Display name" };
+    private readonly TextBox _fingerprint = new() { PlaceholderText = "64-digit SHA-256 from the owner" };
+    private readonly TextBox _invite = new() { PlaceholderText = "Owner-issued invitation token" };
+    private readonly TextBox _username = new() { PlaceholderText = "Username" };
+    private readonly TextBox _displayName = new() { PlaceholderText = "Display name" };
     private readonly TextBox _deviceName = new() { Text = Environment.MachineName };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _verifiedIdentity = new() { TextWrapping = TextWrapping.Wrap };
