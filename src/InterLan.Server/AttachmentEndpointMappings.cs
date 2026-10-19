@@ -167,6 +167,10 @@ public static class AttachmentEndpointMappings
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
+        catch (AttachmentPayloadTooLargeException)
+        {
+            return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
+        }
         catch (ArgumentException error)
         {
             return Results.BadRequest(new { error = error.Message });
