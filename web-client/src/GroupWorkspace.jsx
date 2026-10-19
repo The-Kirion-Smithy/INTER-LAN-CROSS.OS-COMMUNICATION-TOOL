@@ -90,6 +90,9 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
   }, [token, selectedId, reload, report]);
 
   useEffect(() => {
+    // An old group's page request may settle after selection changes; its
+    // guarded finalizer must not leave this group's pager permanently busy.
+    setMessageBusy(false);
     setGroupMessages([]);
     setMessageCursor(null);
     setHasNextMessages(false);
