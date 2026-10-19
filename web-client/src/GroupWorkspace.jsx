@@ -146,7 +146,10 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
       setGroupMessages(previous => mergeGroupMessages(previous, result?.messageId ? [result] : []));
       setGroupMessageDraft("");
     } catch (error) { if (activeGroupRef.current === id) report(error); }
-    finally { if (activeGroupRef.current === id) setMessageSendBusy(false); }
+    finally {
+      // This operation flag is global to the composer, not the active group.
+      setMessageSendBusy(false);
+    }
   }
 
   useEffect(() => {
