@@ -25,6 +25,50 @@ public sealed class AttachmentStore
             "attachments");
     }
 
+    /// <summary>
+    /// Runs once during the single owner-server startup after migrations.
+    /// Discards inaccessible crash leftovers; only exact server-minted names
+    /// are eligible, and a referenced blob is never deleted.
+    /// </summary>
+    public async Task RecoverInterruptedUploadsAsync(CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(_root);
+        var staging = Path.Combine(_root, ".staging");
+        Directory.CreateDirectory(staging);
+
+        // Startup takes place before accepting upload traffic. Only exact
+        // UUID-generated staging filenames are considered cleanup candidates.
+        foreach (var pending in Directory.EnumerateFiles(staging, "*.tmp"))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (Guid.TryParseExact(
+                    Path.GetFileNameWithoutExtension(pending), "N", out _))
+                File.Delete(pending);
+        }
+
+        await using var connection = _database.OpenConnection();
+        foreach (var blob in Directory.EnumerateFiles(_root, "*.blob"))
+        {
+            ct.ThrowIfCancellationRequested();
+            var idText = Path.GetFileNameWithoutExtension(blob);
+            if (!Guid.TryParseExact(idText, "N", out var attachmentId))
+                continue;
+
+            await using var lookup = connection.CreateCommand();
+            lookup.CommandText =
+                """
+                SELECT COUNT(1) FROM attachments
+                WHERE attachment_id = $id AND local_cache_path = $filename;
+                """;
+            lookup.Parameters.AddWithValue("$id", attachmentId.ToString("D"));
+            lookup.Parameters.AddWithValue("$filename", Path.GetFileName(blob));
+            var referenced = Convert.ToInt64(
+                await lookup.ExecuteScalarAsync(ct)) > 0;
+            if (!referenced)
+                File.Delete(blob);
+        }
+    }
+
     public AttachmentUploadPolicyResponse Policy() =>
         new(MaxUploadBytes, MaxScopeBytes,
             "Raw application/octet-stream body; filename supplied as X-InterLan-Filename display metadata.");
