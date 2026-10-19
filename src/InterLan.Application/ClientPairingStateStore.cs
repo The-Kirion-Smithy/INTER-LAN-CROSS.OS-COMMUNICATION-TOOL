@@ -230,9 +230,39 @@ public sealed class ClientPairingStateStore
         byte[] bytes,
         CancellationToken cancellationToken)
     {
-        var temp = path + ".tmp";
-        await File.WriteAllBytesAsync(temp, bytes, cancellationToken);
-        File.Move(temp, path, true);
+        // Each writer owns its staging file, so overlapping saves cannot
+        // truncate each other's ciphertext or protected key material.
+        var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+            Options = FileOptions.Asynchronous
+        };
+
+        // Never create a secret-bearing staging file as world-readable,
+        // even momentarily before the final rename/chmod.
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+        try
+        {
+            await using (var stream = new FileStream(temp, options))
+            {
+                await stream.WriteAsync(bytes.AsMemory(), cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+
+            File.Move(temp, path, true);
+        }
+        finally
+        {
+            // Cancellation and failed replacements cannot leave a predictable
+            // orphan containing an AES key or pairing ciphertext.
+            if (File.Exists(temp))
+                File.Delete(temp);
+        }
     }
 
     private static void RestrictUnixPermissions(string path)
