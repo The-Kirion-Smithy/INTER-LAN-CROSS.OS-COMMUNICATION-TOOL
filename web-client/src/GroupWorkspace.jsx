@@ -101,14 +101,14 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
     if (!selectedId) return;
     const controller = new AbortController();
     setMessageBusy(true);
-    groupsApi.messages(token, selectedId, null, controller.signal)
+    groupsApi.recent(token, selectedId, null, controller.signal)
       .then(page => {
         if (controller.signal.aborted) return;
         // Realtime may deliver a newer message while the initial GET is in
         // flight; merging into current state prevents the GET from erasing it.
         setGroupMessages(previous => mergeGroupMessages(previous, page?.items));
-        setMessageCursor(page?.nextAfterMessageId || null);
-        setHasNextMessages(Boolean(page?.hasMore));
+        setMessageCursor(page?.olderBeforeMessageId || null);
+        setHasNextMessages(Boolean(page?.hasOlder));
       })
       .catch(error => { if (!controller.signal.aborted) report(error); })
       .finally(() => { if (!controller.signal.aborted) setMessageBusy(false); });
@@ -120,11 +120,11 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
     if (!id || !messageCursor || !hasNextMessages || messageBusy) return;
     setMessageBusy(true);
     try {
-      const page = await groupsApi.messages(token, id, messageCursor);
+      const page = await groupsApi.recent(token, id, messageCursor);
       if (activeGroupRef.current !== id) return;
       setGroupMessages(previous => mergeGroupMessages(previous, page?.items));
-      setMessageCursor(page?.nextAfterMessageId || null);
-      setHasNextMessages(Boolean(page?.hasMore));
+      setMessageCursor(page?.olderBeforeMessageId || null);
+      setHasNextMessages(Boolean(page?.hasOlder));
     } catch (error) { if (activeGroupRef.current === id) report(error); }
     finally { if (activeGroupRef.current === id) setMessageBusy(false); }
   }
@@ -395,7 +395,7 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
             </div>
             {hasNextMessages && <button type="button" className="quiet-button"
               disabled={messageBusy} onClick={loadMoreMessages}>
-              {messageBusy ? "Loading…" : "Load next messages"}
+              {messageBusy ? "Loading…" : "Load older messages"}
             </button>}
             <form className="group-message-form" onSubmit={sendGroupMessage}>
               <label>Message this group
