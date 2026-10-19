@@ -13,7 +13,7 @@ const mergeGroupMessages = (oldMessages, newMessages) => {
     (Date.parse(a.createdUtc) - Date.parse(b.createdUtc)) || String(a.messageId).localeCompare(String(b.messageId)));
 };
 
-export default function GroupWorkspace({ session, onSessionLost }) {
+export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }) {
   const token = session.bearerToken;
   const [groups, setGroups] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -138,6 +138,51 @@ export default function GroupWorkspace({ session, onSessionLost }) {
     } catch (error) { if (activeGroupRef.current === id) report(error); }
     finally { if (activeGroupRef.current === id) setMessageSendBusy(false); }
   }
+
+  useEffect(() => {
+    if (!realtimeEvent) return;
+    const { event, payload } = realtimeEvent;
+    if (event === "GroupMembershipRevoked") {
+      if (payload?.groupId === activeGroupRef.current) {
+        setGroupMessages([]);
+        setDetails(null);
+        setSelectedId(null);
+        setError("Your membership in this group was removed by the owner server.");
+      }
+      setReload(value => value + 1);
+      return;
+    }
+    if (event === "GroupMessageCreated") {
+      // SignalR payloads are hints for the current UI; durable history and
+      // current membership authority always come from the owner server.
+      if (payload?.scopeType === "GROUP" && payload?.scopeId === activeGroupRef.current) {
+        setGroupMessages(previous => mergeGroupMessages(previous, [payload]));
+      }
+      return;
+    }
+    if (event !== "GroupReconnect") return;
+
+    const id = activeGroupRef.current;
+    if (!id) return;
+    let cancelled = false;
+    const latestId = groupMessages.at(-1)?.messageId || null;
+    (async () => {
+      let cursor = latestId;
+      try {
+        for (let pageNumber = 0; pageNumber < 12; pageNumber++) {
+          const page = await groupsApi.messages(token, id, cursor);
+          if (cancelled || activeGroupRef.current !== id) return;
+          setGroupMessages(previous => mergeGroupMessages(previous, page?.items));
+          if (!page?.hasMore || !page?.nextAfterMessageId ||
+              cursor === page.nextAfterMessageId) break;
+          cursor = page.nextAfterMessageId;
+        }
+      } catch (error) {
+        if (!cancelled && activeGroupRef.current === id) report(error);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [realtimeEvent, token]);
 
   useEffect(() => {
     if (!directoryQuery.trim() || !details) { setDirectoryUsers([]); return; }
