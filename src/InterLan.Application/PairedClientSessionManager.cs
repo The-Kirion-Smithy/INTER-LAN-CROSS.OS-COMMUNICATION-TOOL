@@ -139,7 +139,9 @@ public sealed class PairedClientSessionManager(
 
         var api = connection.CreateApiClient();
         await api.UnpairDeviceAsync(cancellationToken);
-        _pairingStore.Delete(pairingStatePath);
+        // Linux Secret Service is asynchronous: never block Avalonia's UI
+        // synchronization context while deleting its protected pairing key.
+        await _pairingStore.DeleteAsync(pairingStatePath, cancellationToken);
     }
 
     public static HttpClient CreatePinnedHttpClient(
