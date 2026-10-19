@@ -20,8 +20,8 @@ internal sealed class OwnerPanel : UserControl, IDisposable
     private readonly TextBox _serverName = new() { Text = "My INTER-LAN Server" };
     private readonly TextBox _username = new() { Text = "owner" };
     private readonly TextBox _displayName = new() { Text = "Server Owner" };
-    private readonly TextBox _password = new() { PasswordChar = '●', Watermark = "At least 12 characters" };
-    private readonly TextBox _confirmation = new() { PasswordChar = '●', Watermark = "Repeat password" };
+    private readonly TextBox _password = new() { PasswordChar = '●', PlaceholderText = "At least 12 characters" };
+    private readonly TextBox _confirmation = new() { PasswordChar = '●', PlaceholderText = "Repeat password" };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _identity = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _invite = new() { TextWrapping = TextWrapping.Wrap };
