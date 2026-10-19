@@ -70,8 +70,14 @@ if ($queueJson -match '^\s*\[\s*\]\s*$') {
     Write-Warning 'Empty queue. No README changes, commits, issues or PRs will be fabricated.'
     return
 }
-$queue = @($queueJson | ConvertFrom-Json)
-if ($queue.Count -eq 0 -or ($queue.Count -eq 1 -and $null -eq $queue[0])) {
+# -InputObject preserves the JSON array as data; foreach then produces
+# exactly one record per JSON element in both Windows PowerShell and pwsh.
+$parsedQueue = ConvertFrom-Json -InputObject $queueJson
+$queue = New-Object 'System.Collections.Generic.List[object]'
+foreach ($candidate in $parsedQueue) {
+    [void] $queue.Add($candidate)
+}
+if ($queue.Count -eq 0) {
     Write-Warning 'Empty queue. No README changes, commits, issues or PRs will be fabricated.'
     return
 }
