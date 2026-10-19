@@ -41,12 +41,25 @@ public sealed class RuntimeConfigurationStore
             Directory.CreateDirectory(directory);
         }
 
-        var temporaryPath = fullPath + ".tmp";
-        await using (var stream = File.Create(temporaryPath))
+        // Fixed .tmp names collide when multiple saves overlap. Use a unique
+        // sibling file so each writer can complete its own atomic replacement.
+        var temporaryPath = fullPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            await JsonSerializer.SerializeAsync(stream, configuration, JsonOptions, cancellationToken);
-        }
+            await using (var stream = File.Create(temporaryPath))
+            {
+                await JsonSerializer.SerializeAsync(
+                    stream, configuration, JsonOptions, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
 
-        File.Move(temporaryPath, fullPath, true);
+            File.Move(temporaryPath, fullPath, true);
+        }
+        finally
+        {
+            // A canceled/failed save must not leave a stale configuration file.
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
     }
 }
