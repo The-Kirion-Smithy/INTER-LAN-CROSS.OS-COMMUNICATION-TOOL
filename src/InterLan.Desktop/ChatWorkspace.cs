@@ -130,7 +130,9 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
         _realtime.ReceiptUpdated += OnReceipt;
         _realtime.Reconnecting += _ =>
             Dispatcher.UIThread.Post(() => _status.Text = "Realtime reconnecting. Messages remain server-authoritative.");
-        _realtime.Reconnected += _ =>
+        // Keep the event's connection-id parameter distinct from C#'s discard.
+        // Otherwise `_ = ExecuteAsync(...)` tries to assign a Task to a string.
+        _realtime.Reconnected += connectionId =>
             Dispatcher.UIThread.Post(() => _ = ExecuteAsync(RefreshAfterReconnectAsync));
         _realtime.Closed += _ =>
             Dispatcher.UIThread.Post(() => _status.Text = "Realtime disconnected. Use refresh to catch up.");
