@@ -52,6 +52,10 @@ public static class InterLanServerHost
 
         var database = new SqliteDatabase(Path.Combine(dataDirectory, "interlan.db"));
         await database.InitializeAsync(cancellationToken);
+        // Repair only unreachable staged/orphan blobs before serving traffic.
+        // A referenced attachment is never removed by startup recovery.
+        await new AttachmentStore(database)
+            .RecoverInterruptedUploadsAsync(cancellationToken);
 
         var persistedSettings = await new ServerSettingsStore(database)
             .LoadAsync(dataDirectory, cancellationToken);
