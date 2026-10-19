@@ -72,6 +72,9 @@ export default function FileWorkspace({ session, onSessionLost }) {
     setFiles([]);
     setCursor(null);
     setHasMore(false);
+    // A file selected in one scope cannot silently carry into another.
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (!groupId) return;
     const controller = new AbortController();
     setBusy(true);
@@ -117,7 +120,11 @@ export default function FileWorkspace({ session, onSessionLost }) {
       if (fileInputRef.current) fileInputRef.current.value = "";
       setNotice("Saved to the owner server. Available to current conversation members.");
     } catch (failure) { if (groupRef.current === scopeType + ":" + id) report(failure); }
-    finally { if (groupRef.current === scopeType + ":" + id) setUploading(false); }
+    finally {
+      // This is component operation state, not scope-specific data. Switching
+      // conversations while the request is in flight must never wedge uploads.
+      setUploading(false);
+    }
   }
 
   async function download(file) {
