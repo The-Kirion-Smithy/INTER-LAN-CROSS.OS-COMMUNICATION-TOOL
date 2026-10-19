@@ -9,7 +9,8 @@ export class ApiError extends Error {
 
 export function explainApiError(error) {
   if (error instanceof ApiError) {
-    if (error.status === 401 || error.status === 403) return "Your session is no longer authorized. Sign in again or ask the owner to check access.";
+    if (error.status === 401) return "Your session has expired or was revoked. Sign in again.";
+    if (error.status === 403) return "You do not currently have permission to access this resource. Refresh or ask the owner to review your access.";
     if (error.status === 404) return "That conversation or resource is no longer available to this account.";
     if (error.status === 409) return "The server reported a conflict. Refresh before trying again.";
     if (error.status === 429) return "Too many requests. Wait briefly before retrying.";
