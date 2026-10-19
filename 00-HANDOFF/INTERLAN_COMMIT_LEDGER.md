@@ -1,5 +1,14 @@
 # INTER-LAN COMMIT LEDGER
 
+## CURRENT ACCOUNTING NOTE — 2026-10-19
+
+This ledger's C075/C100 numbers below are **historical phase snapshots**, not current per-phase or account totals. The code-first integration source has advanced through browser/native/group authority and current main is at least `d8dc5d600e9948eee1ca02ea0302f7c311e40d6d` (PR #79); query live GitHub to refresh HEAD. P3 is **not zero** now: PR #33 merged group authority, while group message functionality remains separate issue #35. Jane's #20 and #17 work was submitted under Kirch PRs **#28 and #33**, respectively, not awaiting initial PR creation.
+
+Do not compute GitHub Pull Shark eligibility from worker source commit counts. Use actual PR creator/merged state and independently verify achievement eligibility; do not duplicate previously accepted branches. Code commits, documentation commits and merge commits are distinct measures. No new local compile/runtime or CI acceptance has been run for the 2026-10-19 code-first mass-delivery wave. Preserve historic verified checkpoint entries below without retroactively editing them.
+
+---
+
+
 Target: **300+ meaningful commits per active phase**.
 
 No fake commits. No whitespace farming. No empty commits.
