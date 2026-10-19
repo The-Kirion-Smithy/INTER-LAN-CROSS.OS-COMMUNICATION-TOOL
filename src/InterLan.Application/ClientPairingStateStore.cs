@@ -111,7 +111,7 @@ public sealed class ClientPairingStateStore
         if (payload.Length < 1 + NonceSize + TagSize || payload[0] != FormatVersion)
             throw new InvalidDataException("Client pairing state format is invalid.");
 
-        var key = await GetOrCreateKeyAsync(fullPath, cancellationToken);
+        var key = await ReadExistingKeyAsync(fullPath, cancellationToken);
         var nonce = payload.AsSpan(1, NonceSize);
         var tag = payload.AsSpan(1 + NonceSize, TagSize);
         var ciphertext = payload.AsSpan(1 + NonceSize + TagSize);
@@ -159,17 +159,13 @@ public sealed class ClientPairingStateStore
     {
         var keyPath = KeyPath(statePath);
         if (File.Exists(keyPath))
-        {
-            var persisted = await File.ReadAllBytesAsync(keyPath, cancellationToken);
-            var key = OperatingSystem.IsWindows()
-                ? WindowsDataProtection.Unprotect(persisted)
-                : persisted;
+            return await ReadExistingKeyAsync(statePath, cancellationToken);
 
-            if (key.Length != KeySize)
-                throw new InvalidDataException("Client pairing key is invalid.");
-
-            return key;
-        }
+        // Existing ciphertext without its original encryption key is an
+        // incomplete backup/restore incident, not a new pairing.
+        if (File.Exists(statePath))
+            throw new InvalidDataException(
+                "Client pairing key is missing. Restore its matching key from backup or re-enroll.");
 
         var created = RandomNumberGenerator.GetBytes(KeySize);
         byte[]? persistedKey = null;
@@ -192,6 +188,38 @@ public sealed class ClientPairingStateStore
         {
             if (persistedKey is not null)
                 CryptographicOperations.ZeroMemory(persistedKey);
+        }
+    }
+
+    private static async Task<byte[]> ReadExistingKeyAsync(
+        string statePath,
+        CancellationToken cancellationToken)
+    {
+        var keyPath = KeyPath(statePath);
+        if (!File.Exists(keyPath))
+            throw new InvalidDataException(
+                "Client pairing key is missing. Restore its matching key from backup or re-enroll.");
+
+        var persisted = await File.ReadAllBytesAsync(keyPath, cancellationToken);
+        try
+        {
+            // Avoid aliasing the persisted buffer before it is scrubbed.
+            // Protected platform key vault support is tracked in #40.
+            var key = OperatingSystem.IsWindows()
+                ? WindowsDataProtection.Unprotect(persisted)
+                : persisted.ToArray();
+
+            if (key.Length != KeySize)
+            {
+                CryptographicOperations.ZeroMemory(key);
+                throw new InvalidDataException("Client pairing key is invalid.");
+            }
+
+            return key;
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(persisted);
         }
     }
 
