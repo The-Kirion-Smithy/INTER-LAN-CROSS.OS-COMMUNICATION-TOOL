@@ -1,10 +1,17 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { api, explainApiError } from "./api/client.js";
 import { groupsApi } from "./api/groups.js";
+import { secureId } from "./auth/enrollment.js";
 import "./GroupWorkspace.css";
 
 const displayName = person => person?.displayName || person?.username || "Unknown user";
 const roleLabel = role => String(role || "MEMBER").toLowerCase();
+const mergeGroupMessages = (oldMessages, newMessages) => {
+  const byId = new Map(oldMessages.map(item => [item.messageId, item]));
+  for (const item of newMessages || []) if (item?.messageId) byId.set(item.messageId, item);
+  return [...byId.values()].sort((a, b) =>
+    (Date.parse(a.createdUtc) - Date.parse(b.createdUtc)) || String(a.messageId).localeCompare(String(b.messageId)));
+};
 
 export default function GroupWorkspace({ session, onSessionLost }) {
   const token = session.bearerToken;
@@ -26,6 +33,14 @@ export default function GroupWorkspace({ session, onSessionLost }) {
   const [directoryUsers, setDirectoryUsers] = useState([]);
   const [directoryBusy, setDirectoryBusy] = useState(false);
   const [newRole, setNewRole] = useState("MEMBER");
+  const [groupMessages, setGroupMessages] = useState([]);
+  const [groupMessageDraft, setGroupMessageDraft] = useState("");
+  const [messageCursor, setMessageCursor] = useState(null);
+  const [hasNextMessages, setHasNextMessages] = useState(false);
+  const [messageBusy, setMessageBusy] = useState(false);
+  const [messageSendBusy, setMessageSendBusy] = useState(false);
+  const activeGroupRef = useRef(null);
+  activeGroupRef.current = selectedId;
 
   const report = useCallback(error => {
     // A 403 can mean the user lost this group's membership while their
@@ -33,6 +48,8 @@ export default function GroupWorkspace({ session, onSessionLost }) {
     if (error?.status === 401) {
       onSessionLost("Your browser session is no longer authorized.");
     } else {
+      // Group-scoped 403 revokes access to this conversation, not the session.
+      if (error?.status === 403) { setGroupMessages([]); setDetails(null); }
       setError(explainApiError(error));
     }
   }, [onSessionLost]);
@@ -70,6 +87,57 @@ export default function GroupWorkspace({ session, onSessionLost }) {
       .finally(() => { if (!controller.signal.aborted) setDetailBusy(false); });
     return () => controller.abort();
   }, [token, selectedId, reload, report]);
+
+  useEffect(() => {
+    setGroupMessages([]);
+    setMessageCursor(null);
+    setHasNextMessages(false);
+    setGroupMessageDraft("");
+    if (!selectedId) return;
+    const controller = new AbortController();
+    setMessageBusy(true);
+    groupsApi.messages(token, selectedId, null, controller.signal)
+      .then(page => {
+        if (controller.signal.aborted) return;
+        setGroupMessages(mergeGroupMessages([], page?.items));
+        setMessageCursor(page?.nextAfterMessageId || null);
+        setHasNextMessages(Boolean(page?.hasMore));
+      })
+      .catch(error => { if (!controller.signal.aborted) report(error); })
+      .finally(() => { if (!controller.signal.aborted) setMessageBusy(false); });
+    return () => controller.abort();
+  }, [token, selectedId, reload, report]);
+
+  async function loadMoreMessages() {
+    const id = selectedId;
+    if (!id || !messageCursor || !hasNextMessages || messageBusy) return;
+    setMessageBusy(true);
+    try {
+      const page = await groupsApi.messages(token, id, messageCursor);
+      if (activeGroupRef.current !== id) return;
+      setGroupMessages(previous => mergeGroupMessages(previous, page?.items));
+      setMessageCursor(page?.nextAfterMessageId || null);
+      setHasNextMessages(Boolean(page?.hasMore));
+    } catch (error) { if (activeGroupRef.current === id) report(error); }
+    finally { if (activeGroupRef.current === id) setMessageBusy(false); }
+  }
+
+  async function sendGroupMessage(event) {
+    event.preventDefault();
+    const id = selectedId;
+    const body = groupMessageDraft.trim();
+    if (!id || !body || messageSendBusy) return;
+    setMessageSendBusy(true);
+    setError("");
+    try {
+      const result = await groupsApi.sendMessage(token, id, secureId(), body);
+      if (activeGroupRef.current !== id) return;
+      // POST returns MessageResponse directly, not a PersistedMessageResult wrapper.
+      setGroupMessages(previous => mergeGroupMessages(previous, result?.messageId ? [result] : []));
+      setGroupMessageDraft("");
+    } catch (error) { if (activeGroupRef.current === id) report(error); }
+    finally { if (activeGroupRef.current === id) setMessageSendBusy(false); }
+  }
 
   useEffect(() => {
     if (!directoryQuery.trim() || !details) { setDirectoryUsers([]); return; }
@@ -247,10 +315,38 @@ export default function GroupWorkspace({ session, onSessionLost }) {
               <time dateTime={event.createdUtc}>{new Date(event.createdUtc).toLocaleString()}</time>
             </div>)}
           </div>
-          <div className="group-message-boundary">
-            <strong>Group messages are not available in this server contract yet.</strong>
-            <p>Current P3 routes manage groups and memberships. No group message send, unread or history endpoint is integrated, so no composer is shown.</p>
-          </div>
+          <section className="group-message-boundary" aria-label="Group conversation">
+            <h3>Group conversation</h3>
+            <p>Messages are stored by the owner server and only readable by current members.</p>
+            <div className="group-message-log" role="log" aria-label={"Messages in " + details.name} aria-live="polite">
+              {messageBusy && !groupMessages.length && <p className="muted">Loading authorized messages…</p>}
+              {!messageBusy && !groupMessages.length && <p className="muted">No group messages yet.</p>}
+              {groupMessages.map(item => {
+                const sender = details.members?.find(member => member.userId === item.senderUserId);
+                return <article className="group-message-entry" key={item.messageId}>
+                  <div className="group-message-byline">
+                    <strong>{item.senderUserId === session.userId ? "You" : sender ? displayName(sender) : "Group member"}</strong>
+                    <time dateTime={item.createdUtc}>{new Date(item.createdUtc).toLocaleString()}</time>
+                  </div>
+                  <p>{item.deletedUtc ? "Message deleted" : item.body}</p>
+                </article>;
+              })}
+            </div>
+            {hasNextMessages && <button type="button" className="quiet-button"
+              disabled={messageBusy} onClick={loadMoreMessages}>
+              {messageBusy ? "Loading…" : "Load next messages"}
+            </button>}
+            <form className="group-message-form" onSubmit={sendGroupMessage}>
+              <label>Message this group
+                <textarea value={groupMessageDraft} rows={3} maxLength={4000}
+                  onChange={event => setGroupMessageDraft(event.target.value)}
+                  placeholder="Write to current group members" required />
+              </label>
+              <button type="submit" disabled={messageSendBusy || !groupMessageDraft.trim()}>
+                {messageSendBusy ? "Sending…" : "Send to group"}
+              </button>
+            </form>
+          </section>
         </>}
       </section>
     </div>

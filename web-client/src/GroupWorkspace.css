@@ -38,6 +38,17 @@
 .group-event time { font-size: .76rem; color: #94aac5; white-space: nowrap; }
 .group-message-boundary { border: 1px dashed #455c7c; border-radius: 12px; background: #14243a; padding: 15px; color: #c8d8ea; }
 .group-message-boundary p { color: #94abc8; margin: 8px 0 0; font-size: .84rem; }
+
+.group-message-log { display: grid; gap: 10px; max-height: 420px; overflow-y: auto; padding: 12px 0; min-width: 0; }
+.group-message-entry { padding: 10px 12px; border: 1px solid #354866; border-radius: 10px; background: #1a2e48; overflow-wrap: anywhere; }
+.group-message-byline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: center; }
+.group-message-byline strong { font-size: .85rem; color: #e6f1ff; }
+.group-message-byline time { font-size: .75rem; color: #a9bfdb; }
+.group-message-entry p { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 8px; color: #e1eaf7; }
+.group-message-form { display: grid; gap: 12px; padding-top: 14px; margin-top: 12px; border-top: 1px solid #324760; }
+.group-message-form textarea { width: 100%; max-width: 100%; resize: vertical; }
+.group-message-form button { justify-self: start; }
+
 @media (max-width: 1050px) {
   .groups-grid { grid-template-columns: minmax(205px,35%) minmax(0,1fr); }
   .group-member { flex-wrap: wrap; }
