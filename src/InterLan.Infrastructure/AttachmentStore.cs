@@ -9,8 +9,11 @@ namespace InterLan.Infrastructure;
 /// Stream to a private staging file; publish the final file before the database
 /// transaction commits, so interrupted uploads never become downloadable rows.
 /// </summary>
-public sealed class AttachmentPayloadTooLargeException()
-    : ArgumentException("Attachment exceeds the 10 MiB upload cap.");
+public sealed class AttachmentPayloadTooLargeException : ArgumentException
+{
+    public AttachmentPayloadTooLargeException()
+        : base("Attachment exceeds the 10 MiB upload cap.") { }
+}
 
 public sealed class AttachmentStore
 {
