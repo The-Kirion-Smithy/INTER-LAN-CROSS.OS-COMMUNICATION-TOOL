@@ -132,7 +132,8 @@ export default function GroupWorkspace({ session, onSessionLost }) {
     try {
       const result = await groupsApi.sendMessage(token, id, secureId(), body);
       if (activeGroupRef.current !== id) return;
-      setGroupMessages(previous => mergeGroupMessages(previous, result?.message ? [result.message] : []));
+      // POST returns MessageResponse directly, not a PersistedMessageResult wrapper.
+      setGroupMessages(previous => mergeGroupMessages(previous, result?.messageId ? [result] : []));
       setGroupMessageDraft("");
     } catch (error) { if (activeGroupRef.current === id) report(error); }
     finally { if (activeGroupRef.current === id) setMessageSendBusy(false); }
