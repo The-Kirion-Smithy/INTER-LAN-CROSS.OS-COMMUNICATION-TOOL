@@ -18,6 +18,20 @@ public static class AttachmentEndpointMappings
                 : Results.Ok(store.Policy());
         });
 
+        app.MapGet("/api/v1/groups/{groupId:guid}/attachments", async (
+            Guid groupId, Guid? beforeAttachmentId, int? limit,
+            HttpContext context, EnrollmentStore enrollment,
+            AttachmentStore store, CancellationToken cancellationToken) =>
+            await ListScopedAsync(context, enrollment, store,
+                "GROUP", groupId, beforeAttachmentId, limit, cancellationToken));
+
+        app.MapGet("/api/v1/direct/{conversationId:guid}/attachments", async (
+            Guid conversationId, Guid? beforeAttachmentId, int? limit,
+            HttpContext context, EnrollmentStore enrollment,
+            AttachmentStore store, CancellationToken cancellationToken) =>
+            await ListScopedAsync(context, enrollment, store,
+                "DIRECT", conversationId, beforeAttachmentId, limit, cancellationToken));
+
         app.MapPost("/api/v1/groups/{groupId:guid}/attachments", async (
             Guid groupId, HttpContext context,
             EnrollmentStore enrollment, AttachmentStore store,
@@ -97,6 +111,31 @@ public static class AttachmentEndpointMappings
         });
 
         return app;
+    }
+
+    private static async Task<IResult> ListScopedAsync(
+        HttpContext context, EnrollmentStore enrollment,
+        AttachmentStore store, string scope, Guid scopeId,
+        Guid? beforeAttachmentId, int? limit, CancellationToken cancellationToken)
+    {
+        var principal = await AuthorizationHelpers.GetPrincipalAsync(
+            context, enrollment, cancellationToken);
+        if (principal is null) return Results.Unauthorized();
+
+        try
+        {
+            return Results.Ok(await store.ListAuthorizedAsync(
+                principal.UserId, scope, scopeId, beforeAttachmentId,
+                Math.Clamp(limit ?? 50, 1, 100), cancellationToken));
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.NotFound();
+        }
     }
 
     private static async Task<IResult> UploadAsync(
