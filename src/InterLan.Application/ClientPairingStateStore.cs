@@ -21,7 +21,18 @@ public sealed record ClientPairingState(
         if (DeviceId == Guid.Empty) errors.Add("DeviceId is required.");
         if (!Uri.TryCreate(ServerUri, UriKind.Absolute, out var uri) ||
             !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
             errors.Add("ServerUri must be an absolute HTTPS URI.");
+        }
+        else if (!string.IsNullOrEmpty(uri.UserInfo) ||
+                 !string.IsNullOrEmpty(uri.Query) ||
+                 !string.IsNullOrEmpty(uri.Fragment) ||
+                 uri.AbsolutePath != "/")
+        {
+            // A pinned owner endpoint is an origin, never a URL containing
+            // embedded credentials or caller-controlled request components.
+            errors.Add("ServerUri must be an HTTPS owner origin without user info, path, query or fragment.");
+        }
         if (string.IsNullOrEmpty(PinnedCertificateSha256) ||
             PinnedCertificateSha256.Length != 64 ||
             !PinnedCertificateSha256.All(Uri.IsHexDigit))
