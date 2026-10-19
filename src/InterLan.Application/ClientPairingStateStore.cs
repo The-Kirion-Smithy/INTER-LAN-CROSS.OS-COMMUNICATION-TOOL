@@ -327,10 +327,9 @@ public sealed class ClientPairingStateStore
                 Size = value.Length,
                 Data = Marshal.AllocHGlobal(value.Length)
             };
-            Marshal.Copy(value, 0, input.Data, value.Length);
-
             try
             {
+                Marshal.Copy(value, 0, input.Data, value.Length);
                 DataBlob output;
                 var success = protect
                     ? CryptProtectData(
@@ -362,12 +361,32 @@ public sealed class ClientPairingStateStore
                 finally
                 {
                     if (output.Data != IntPtr.Zero)
-                        LocalFree(output.Data);
+                    {
+                        try { ClearNativeBuffer(output.Data, output.Size); }
+                        finally { LocalFree(output.Data); }
+                    }
                 }
             }
             finally
             {
-                Marshal.FreeHGlobal(input.Data);
+                try { ClearNativeBuffer(input.Data, input.Size); }
+                finally { Marshal.FreeHGlobal(input.Data); }
+            }
+        }
+
+        private static void ClearNativeBuffer(IntPtr buffer, int length)
+        {
+            if (buffer == IntPtr.Zero || length <= 0)
+                return;
+
+            // DPAPI unprotect returns the plaintext AES key in unmanaged memory.
+            // Explicitly overwrite that allocation before returning it to the heap.
+            var zeros = new byte[Math.Min(length, 4096)];
+            for (var offset = 0; offset < length; offset += zeros.Length)
+            {
+                Marshal.Copy(
+                    zeros, 0, IntPtr.Add(buffer, offset),
+                    Math.Min(zeros.Length, length - offset));
             }
         }
     }
