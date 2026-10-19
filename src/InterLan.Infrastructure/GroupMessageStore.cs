@@ -103,6 +103,77 @@ public sealed class GroupMessageStore(SqliteDatabase database)
             true);
     }
 
+    /// <summary>
+    /// Opens the newest committed messages and then pages backwards. This is
+    /// separate from ascending cursor catch-up, which existing clients retain.
+    /// Membership and cursor selection share one SQLite read snapshot.
+    /// </summary>
+    public async Task<RecentMessagePageResponse> GetRecentPageAsync(
+        Guid actorUserId, Guid groupId, Guid? beforeMessageId, int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > MaxPageSize)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+
+        await using var connection = database.OpenConnection();
+        using var transaction = connection.BeginTransaction(deferred: true);
+        await RequireActiveMemberAsync(connection, transaction, actorUserId, groupId, cancellationToken);
+
+        string? beforeCreated = null;
+        string? beforeId = null;
+        if (beforeMessageId is { } cursor)
+        {
+            await using var lookup = connection.CreateCommand();
+            lookup.Transaction = transaction;
+            lookup.CommandText =
+                """
+                SELECT created_utc, message_id FROM messages
+                WHERE scope_type = 'GROUP' AND scope_id = $group AND message_id = $cursor;
+                """;
+            lookup.Parameters.AddWithValue("$group", groupId.ToString("D"));
+            lookup.Parameters.AddWithValue("$cursor", cursor.ToString("D"));
+            await using var cursorReader = await lookup.ExecuteReaderAsync(cancellationToken);
+            if (!await cursorReader.ReadAsync(cancellationToken))
+                throw new KeyNotFoundException("Group history cursor was not found in this group.");
+            beforeCreated = cursorReader.GetString(0);
+            beforeId = cursorReader.GetString(1);
+        }
+
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            SELECT message_id, scope_type, scope_id, sender_user_id,
+                   client_message_id, body, reply_to_message_id,
+                   created_utc, edited_utc, deleted_utc
+            FROM messages
+            WHERE scope_type = 'GROUP' AND scope_id = $group
+              AND ($beforeCreated IS NULL OR created_utc < $beforeCreated
+                   OR (created_utc = $beforeCreated AND message_id < $beforeId))
+            ORDER BY created_utc DESC, message_id DESC
+            LIMIT $limit;
+            """;
+        command.Parameters.AddWithValue("$group", groupId.ToString("D"));
+        command.Parameters.AddWithValue("$beforeCreated", (object?)beforeCreated ?? DBNull.Value);
+        command.Parameters.AddWithValue("$beforeId", (object?)beforeId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$limit", limit + 1);
+
+        var descending = new List<MessageResponse>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+            descending.Add(ReadMessage(reader));
+        await reader.DisposeAsync();
+        transaction.Commit();
+
+        var hasOlder = descending.Count > limit;
+        if (hasOlder) descending.RemoveAt(descending.Count - 1);
+        descending.Reverse();
+        return new RecentMessagePageResponse(
+            descending,
+            descending.Count == 0 ? null : descending[0].MessageId,
+            hasOlder);
+    }
+
     public async Task<MessagePageResponse> GetPageAsync(
         Guid actorUserId, Guid groupId, Guid? afterMessageId, int limit = 50,
         CancellationToken cancellationToken = default)
