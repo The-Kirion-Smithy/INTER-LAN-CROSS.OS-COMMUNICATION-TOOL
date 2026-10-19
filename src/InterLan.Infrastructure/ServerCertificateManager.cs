@@ -95,8 +95,6 @@ public static class ServerCertificateManager
             DateTimeOffset.UtcNow.AddMinutes(-5),
             DateTimeOffset.UtcNow.AddYears(5));
 
-        File.WriteAllText(certificatePath, certificate.ExportCertificatePem());
-
         // Create the sensitive key with owner-only permissions from the
         // initial open; chmod after File.WriteAllText leaves an exposure window.
         // CreateNew also refuses to overwrite an identity another host created.
@@ -114,6 +112,10 @@ public static class ServerCertificateManager
         {
             writer.Write(rsa.ExportPkcs8PrivateKeyPem());
         }
+
+        // Publish the certificate only after winning exclusive creation of
+        // the private key; a concurrent host must never overwrite this PEM.
+        File.WriteAllText(certificatePath, certificate.ExportCertificatePem());
     }
 
     private static IEnumerable<IPAddress> GetLocalAddresses()
