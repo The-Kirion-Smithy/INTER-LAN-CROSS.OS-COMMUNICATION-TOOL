@@ -50,6 +50,10 @@ export const attachmentsApi = {
   policy: (token, signal) => requestJson("/api/v1/attachments/policy", { token, signal }),
   metadata: (token, attachmentId, signal) =>
     requestJson(attachmentPath(attachmentId) + "/metadata", { token, signal }),
+  list: (token, scopeType, scopeId, beforeAttachmentId, signal) =>
+    requestJson(scopePath(scopeType, scopeId) + "?limit=50" +
+      (beforeAttachmentId ? "&beforeAttachmentId=" + uuid(beforeAttachmentId) : ""),
+      { token, signal }),
   async upload(token, scopeType, scopeId, file, signal) {
     // Server policy is authoritative, even when the browser detects size early.
     const policy = await attachmentsApi.policy(token, signal);
