@@ -9,6 +9,12 @@ namespace InterLan.Infrastructure;
 /// Stream to a private staging file; publish the final file before the database
 /// transaction commits, so interrupted uploads never become downloadable rows.
 /// </summary>
+public sealed class AttachmentPayloadTooLargeException : ArgumentException
+{
+    public AttachmentPayloadTooLargeException()
+        : base("Attachment exceeds the 10 MiB upload cap.") { }
+}
+
 public sealed class AttachmentStore
 {
     public const long MaxUploadBytes = 10L * 1024 * 1024;
@@ -118,7 +124,7 @@ public sealed class AttachmentStore
                 {
                     bytes += read;
                     if (bytes > MaxUploadBytes)
-                        throw new ArgumentException("Attachment exceeds the 10 MiB upload cap.");
+                        throw new AttachmentPayloadTooLargeException();
                     digest.AppendData(buffer, 0, read);
                     await target.WriteAsync(buffer.AsMemory(0, read), ct);
                 }
