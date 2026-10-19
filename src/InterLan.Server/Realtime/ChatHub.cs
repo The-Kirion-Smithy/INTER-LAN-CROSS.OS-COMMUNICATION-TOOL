@@ -28,11 +28,28 @@ public sealed class ChatHub(
             return;
         }
 
+        // Register first, then re-check durable session authority. A revoke
+        // that races between ticket validation and registry insertion will be
+        // caught here; a revoke after insertion invokes the registered abort.
         Context.Items["principal"] = principal;
-        Context.Items[LeaseKey] = connections.Register(
+        var lease = connections.Register(
             principal,
             Context.ConnectionId,
             Context.Abort);
+        Context.Items[LeaseKey] = lease;
+        var currentPrincipal = await enrollment.ValidateSessionByIdAsync(
+            principal.SessionId,
+            Context.ConnectionAborted);
+        if (currentPrincipal is null ||
+            currentPrincipal.UserId != principal.UserId ||
+            currentPrincipal.DeviceId != principal.DeviceId)
+        {
+            lease.Dispose();
+            Context.Items.Remove(LeaseKey);
+            Context.Items.Remove("principal");
+            Context.Abort();
+            return;
+        }
 
         await Groups.AddToGroupAsync(
             Context.ConnectionId,
@@ -120,11 +137,7 @@ public sealed class ChatHub(
         Guid conversationId,
         bool isTyping)
     {
-        if (!Context.Items.TryGetValue("principal", out var value) ||
-            value is not SessionPrincipal principal)
-        {
-            throw new HubException("Authenticated session is required.");
-        }
+        var principal = await RequireLivePrincipalAsync();
 
         IReadOnlyList<Guid> members;
         try
@@ -179,8 +192,36 @@ public sealed class ChatHub(
         }
     }
 
-    public ControlPong Ping() =>
-        new(ApiContractVersion.Current, DateTimeOffset.UtcNow, "ok");
+    public async Task<ControlPong> Ping()
+    {
+        await RequireLivePrincipalAsync();
+        return new(ApiContractVersion.Current, DateTimeOffset.UtcNow, "ok");
+    }
+
+    private async Task<SessionPrincipal> RequireLivePrincipalAsync()
+    {
+        if (!Context.Items.TryGetValue("principal", out var cached) ||
+            cached is not SessionPrincipal principal)
+        {
+            Context.Abort();
+            throw new HubException("Authenticated session is required.");
+        }
+
+        // A cached SignalR principal is not ongoing authorization.
+        // Consult canonical server state for every client-initiated hub call.
+        var live = await enrollment.ValidateSessionByIdAsync(
+            principal.SessionId,
+            Context.ConnectionAborted);
+        if (live is null ||
+            live.UserId != principal.UserId ||
+            live.DeviceId != principal.DeviceId)
+        {
+            Context.Abort();
+            throw new HubException("Device or session access has been revoked.");
+        }
+
+        return live;
+    }
 
     private async Task<SessionPrincipal?> ResolvePrincipalAsync(HttpContext? context)
     {
