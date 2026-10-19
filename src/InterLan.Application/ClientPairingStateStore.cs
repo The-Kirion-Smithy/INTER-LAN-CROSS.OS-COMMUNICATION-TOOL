@@ -36,6 +36,9 @@ public sealed record ClientPairingState(
 
 public sealed class ClientPairingStateStore
 {
+    public static bool HasPlatformProtectedKeyVault =>
+        OperatingSystem.IsWindows() || NativePairingKeyVault.HasPlatformAdapter;
+
     private const byte FormatVersion = 1;
     private const int KeySize = 32;
     private const int NonceSize = 12;
