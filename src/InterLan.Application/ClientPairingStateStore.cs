@@ -67,26 +67,36 @@ public sealed class ClientPairingStateStore
             Directory.CreateDirectory(directory);
 
         var key = await GetOrCreateKeyAsync(fullPath, cancellationToken);
-        var plaintext = JsonSerializer.SerializeToUtf8Bytes(state);
-        var nonce = RandomNumberGenerator.GetBytes(NonceSize);
-        var ciphertext = new byte[plaintext.Length];
-        var tag = new byte[TagSize];
-
-        using (var aes = new AesGcm(key, TagSize))
+        byte[]? plaintext = null;
+        try
         {
-            aes.Encrypt(nonce, plaintext, ciphertext, tag);
+            plaintext = JsonSerializer.SerializeToUtf8Bytes(state);
+            var nonce = RandomNumberGenerator.GetBytes(NonceSize);
+            var ciphertext = new byte[plaintext.Length];
+            var tag = new byte[TagSize];
+
+            using (var aes = new AesGcm(key, TagSize))
+            {
+                aes.Encrypt(nonce, plaintext, ciphertext, tag);
+            }
+
+            var payload = new byte[1 + NonceSize + TagSize + ciphertext.Length];
+            payload[0] = FormatVersion;
+            nonce.CopyTo(payload.AsSpan(1, NonceSize));
+            tag.CopyTo(payload.AsSpan(1 + NonceSize, TagSize));
+            ciphertext.CopyTo(payload.AsSpan(1 + NonceSize + TagSize));
+
+            await AtomicWriteAsync(fullPath, payload, cancellationToken);
+            RestrictUnixPermissions(fullPath);
         }
-
-        var payload = new byte[1 + NonceSize + TagSize + ciphertext.Length];
-        payload[0] = FormatVersion;
-        nonce.CopyTo(payload.AsSpan(1, NonceSize));
-        tag.CopyTo(payload.AsSpan(1 + NonceSize, TagSize));
-        ciphertext.CopyTo(payload.AsSpan(1 + NonceSize + TagSize));
-
-        await AtomicWriteAsync(fullPath, payload, cancellationToken);
-        RestrictUnixPermissions(fullPath);
-        CryptographicOperations.ZeroMemory(key);
-        CryptographicOperations.ZeroMemory(plaintext);
+        finally
+        {
+            // Cancellation, I/O errors and encryption failures must not leave
+            // the pairing credential or AES key in an abandoned managed buffer.
+            CryptographicOperations.ZeroMemory(key);
+            if (plaintext is not null)
+                CryptographicOperations.ZeroMemory(plaintext);
+        }
     }
 
     public async Task<ClientPairingState?> LoadAsync(
@@ -162,14 +172,27 @@ public sealed class ClientPairingStateStore
         }
 
         var created = RandomNumberGenerator.GetBytes(KeySize);
-        var persistedKey = OperatingSystem.IsWindows()
-            ? WindowsDataProtection.Protect(created)
-            : created.ToArray();
+        byte[]? persistedKey = null;
+        try
+        {
+            persistedKey = OperatingSystem.IsWindows()
+                ? WindowsDataProtection.Protect(created)
+                : created.ToArray();
 
-        await AtomicWriteAsync(keyPath, persistedKey, cancellationToken);
-        RestrictUnixPermissions(keyPath);
-        CryptographicOperations.ZeroMemory(persistedKey);
-        return created;
+            await AtomicWriteAsync(keyPath, persistedKey, cancellationToken);
+            RestrictUnixPermissions(keyPath);
+            return created;
+        }
+        catch
+        {
+            CryptographicOperations.ZeroMemory(created);
+            throw;
+        }
+        finally
+        {
+            if (persistedKey is not null)
+                CryptographicOperations.ZeroMemory(persistedKey);
+        }
     }
 
     private static string KeyPath(string statePath) => statePath + ".key";
