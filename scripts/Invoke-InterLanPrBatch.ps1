@@ -60,10 +60,26 @@ if ([string] $identity.login -cne 'Kirch-Nairu') {
     throw "The authenticated account is $($identity.login); only Kirch-Nairu may open the qualifying PR."
 }
 
-$queue = @(Get-Content -LiteralPath $QueuePath -Raw | ConvertFrom-Json)
+# Windows PowerShell 5.1 can surface JSON [] as one empty-array pipeline item.
+# Resolve an empty array before PowerShell pipeline enumeration.
+$queueJson = Get-Content -LiteralPath $QueuePath -Raw
+if ([string]::IsNullOrWhiteSpace($queueJson) -or $queueJson -notmatch '^\s*\[') {
+    throw "Queue must be a JSON array: $QueuePath"
+}
+if ($queueJson -match '^\s*\[\s*\]\s*$') {
+    Write-Warning 'Empty queue. No README changes, commits, issues or PRs will be fabricated.'
+    return
+}
+# -InputObject preserves the JSON array as data; foreach then produces
+# exactly one record per JSON element in both Windows PowerShell and pwsh.
+$parsedQueue = ConvertFrom-Json -InputObject $queueJson
+$queue = New-Object 'System.Collections.Generic.List[object]'
+foreach ($candidate in $parsedQueue) {
+    [void] $queue.Add($candidate)
+}
 if ($queue.Count -eq 0) {
     Write-Warning 'Empty queue. No README changes, commits, issues or PRs will be fabricated.'
-    exit 0
+    return
 }
 
 $startCount = Get-KirchMergedPrCount
@@ -80,6 +96,13 @@ Write-Host "Target processed PR candidates: $Target; execute: $Execute; merge: $
 while ($index -lt $queue.Count -and ($created + $preview) -lt $Target) {
     $item = $queue[$index]
     $index++
+    if ($null -eq $item -or
+        -not ($item.PSObject.Properties.Name -contains 'issue') -or
+        -not ($item.PSObject.Properties.Name -contains 'branch') -or
+        -not ($item.PSObject.Properties.Name -contains 'title') -or
+        -not ($item.PSObject.Properties.Name -contains 'summary')) {
+        throw "Queue entry $index must be a JSON object containing issue, branch, title and summary."
+    }
     $issueNumber = [int] $item.issue
     $branch = [string] $item.branch
     $title = [string] $item.title
@@ -105,16 +128,22 @@ while ($index -lt $queue.Count -and ($created + $preview) -lt $Target) {
         $skipped++; continue
     }
     $compare = Invoke-GhJson -Arguments @('api', "repos/$Repo/compare/main...$branch")
-    $files = @($compare.files)
+    # Never count an empty GitHub JSON array as one changed file.
+    $files = @($compare.files | Where-Object {
+        $null -ne $_ -and $_.PSObject.Properties.Name -contains 'filename'
+    })
     if ([int] $compare.ahead_by -le 0 -or $files.Count -eq 0) {
         Write-Warning "Skip #${issueNumber}: no branch-ahead unmerged file diff."
         $skipped++; continue
     }
+    # Filter possible empty-array pipeline wrappers before counting PRs.
     $previous = @(Invoke-GhJson -Arguments @(
         'pr', 'list', '--repo', $Repo,
         '--head', $branch, '--state', 'all',
         '--limit', '100', '--json', 'number,mergedAt,state'
-    ))
+    ) | Where-Object {
+        $null -ne $_ -and $_.PSObject.Properties.Name -contains 'number'
+    })
     if ($previous.Count -gt 0) {
         Write-Warning "Skip #${issueNumber}: branch already submitted as PR #$($previous[0].number)."
         $skipped++; continue
