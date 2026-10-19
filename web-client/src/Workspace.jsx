@@ -419,7 +419,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
             {search.trim() && !peopleBusy && people.length === 0 && !searchError && <p className="empty-copy">No matching users.</p>}
           </div>}
           {section === "groups" && <div className="sidebar-body"><p className="empty-copy">Group memberships and message history are controlled by the owner server.</p></div>}
-          {section === "files" && <div className="sidebar-body"><p className="empty-copy">Only current group members can list, upload or download stored files.</p></div>}
+          {section === "files" && <div className="sidebar-body"><p className="empty-copy">Only current conversation members can list, upload or download stored files.</p></div>}
           {section === "settings" && <div className="sidebar-body"><p className="empty-copy">Account identity and server session security.</p></div>}
         </aside>
 
