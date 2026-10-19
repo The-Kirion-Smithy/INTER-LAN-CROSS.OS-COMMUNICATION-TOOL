@@ -95,15 +95,27 @@ public static class ServerCertificateManager
             DateTimeOffset.UtcNow.AddMinutes(-5),
             DateTimeOffset.UtcNow.AddYears(5));
 
-        File.WriteAllText(certificatePath, certificate.ExportCertificatePem());
-        File.WriteAllText(privateKeyPath, rsa.ExportPkcs8PrivateKeyPem());
-
-        if (!OperatingSystem.IsWindows())
+        // Create the sensitive key with owner-only permissions from the
+        // initial open; chmod after File.WriteAllText leaves an exposure window.
+        // CreateNew also refuses to overwrite an identity another host created.
+        var keyOptions = new FileStreamOptions
         {
-            File.SetUnixFileMode(
-                privateKeyPath,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None
+        };
+        if (!OperatingSystem.IsWindows())
+            keyOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+        using (var keyStream = new FileStream(privateKeyPath, keyOptions))
+        using (var writer = new StreamWriter(keyStream))
+        {
+            writer.Write(rsa.ExportPkcs8PrivateKeyPem());
         }
+
+        // Publish the certificate only after winning exclusive creation of
+        // the private key; a concurrent host must never overwrite this PEM.
+        File.WriteAllText(certificatePath, certificate.ExportCertificatePem());
     }
 
     private static IEnumerable<IPAddress> GetLocalAddresses()
