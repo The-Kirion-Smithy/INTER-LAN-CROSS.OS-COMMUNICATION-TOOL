@@ -20,9 +20,9 @@ internal sealed class GroupWorkspace : UserControl
     private readonly ListBox _members = new() { Height = 250 };
     private readonly ListBox _directory = new() { Height = 115 };
     private readonly ListBox _events = new() { Height = 160 };
-    private readonly TextBox _requestedRole = new() { Text = "MEMBER", Watermark = "MEMBER or ADMIN" };
-    private readonly TextBox _name = new() { Watermark = "Group name" };
-    private readonly TextBox _topic = new() { Watermark = "Optional group topic" };
+    private readonly TextBox _requestedRole = new() { Text = "MEMBER", PlaceholderText = "MEMBER or ADMIN" };
+    private readonly TextBox _name = new() { PlaceholderText = "Group name" };
+    private readonly TextBox _topic = new() { PlaceholderText = "Optional group topic" };
     private readonly TextBlock _status = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _identity = new() { TextWrapping = TextWrapping.Wrap };
     private readonly Button _refresh = Button("Refresh my groups");
