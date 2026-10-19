@@ -13,6 +13,7 @@ export function explainApiError(error) {
     if (error.status === 403) return "You do not currently have permission to access this resource. Refresh or ask the owner to review your access.";
     if (error.status === 404) return "That conversation or resource is no longer available to this account.";
     if (error.status === 409) return "The server reported a conflict. Refresh before trying again.";
+    if (error.status === 413) return "This file exceeds the owner server's upload size limit. Choose a smaller file.";
     if (error.status === 429) return "Too many requests. Wait briefly before retrying.";
     if (error.status >= 500) return "The owner server could not complete the request. Try again when it recovers.";
     return error.message;
