@@ -116,9 +116,11 @@ internal static class NativePairingKeyVault
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
             using var process = new Process { StartInfo = start };
+            var started = false;
             try
             {
-                if (!process.Start())
+                started = process.Start();
+                if (!started)
                     throw new InvalidOperationException("Native Secret Service helper could not start.");
 
                 var stdout = process.StandardOutput.ReadToEndAsync(timeout.Token);
@@ -146,8 +148,18 @@ internal static class NativePairingKeyVault
             }
             finally
             {
-                if (process.HasExited == false)
-                    process.Kill(entireProcessTree: true);
+                if (started)
+                {
+                    try
+                    {
+                        if (!process.HasExited)
+                            process.Kill(entireProcessTree: true);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Process exited between the state check and kill.
+                    }
+                }
             }
         }
     }
@@ -286,7 +298,7 @@ internal static class NativePairingKeyVault
             {
                 if (length != 32 || nativeValue == IntPtr.Zero)
                     throw new CryptographicException("macOS Keychain pairing key is absent or invalid.");
-                value = new byte[length];
+                value = new byte[checked((int)length)];
                 Marshal.Copy(nativeValue, value, 0, (int)length);
                 return item;
             }
