@@ -22,15 +22,15 @@ internal sealed class ChatWorkspace : UserControl, IAsyncDisposable
     private readonly ListBox _inbox = new() { Height = 260 };
     private readonly ListBox _directory = new() { Height = 190 };
     private readonly ListBox _messages = new() { MinHeight = 260 };
-    private readonly TextBox _composer = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 78, Watermark = "Write a direct message" };
+    private readonly TextBox _composer = new() { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 78, PlaceholderText = "Write a direct message" };
     private readonly Button _send = Button("Send message");
     private readonly Button _older = Button("Load earlier messages");
     private readonly Button _refresh = Button("Refresh inbox / directory");
     private readonly Button _open = Button("Open direct message with selected person");
     private readonly Button _reloadThread = Button("Refresh selected conversation");
-    private readonly TextBox _searchInput = new() { Watermark = "Search this conversation" };
+    private readonly TextBox _searchInput = new() { PlaceholderText = "Search this conversation" };
     private readonly ListBox _searchResults = new() { Height = 110 };
-    private readonly TextBox _editInput = new() { Watermark = "Edit your selected message" };
+    private readonly TextBox _editInput = new() { PlaceholderText = "Edit your selected message" };
     private readonly Button _searchButton = Button("Search server history");
     private readonly Button _reply = Button("Reply to selected message");
     private readonly Button _edit = Button("Save edit to selected own message");
