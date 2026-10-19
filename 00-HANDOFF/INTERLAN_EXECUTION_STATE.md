@@ -1,5 +1,18 @@
 # INTER-LAN EXECUTION STATE
 
+## LIVE RECOVERY POINTER — supersedes historical "Current authority" below (2026-10-19)
+
+**Repository:** `The-Kirion-Smithy/INTER-LAN-CROSS.OS-COMMUNICATION-TOOL`. **Technical Authority:** Kirch Ivan Balite / `Kirch-Nairu`. **Known integration checkpoint:** `main@d8dc5d600e9948eee1ca02ea0302f7c311e40d6d` after merged PR #79; **always re-resolve current main** before continuing.
+
+**Accepted implementation slices:** direct-message transport/persistence, server owner bootstrap and session/device authority; owner/browser/native UI; realtime typing gate (#28); P3 group member and role authority with migration 008 and audit routes (#33); authenticated browser DM (#29) and group management (#43); native owner/pairing/DM (#32) and group management (#58); server TLS partial-key fail-closed handling (#76).
+
+**Outstanding or unverified:** group message storage/realtime/strict removal cutoff (issue #35); file hosting/Telegram archival runtime; macOS/Linux native credential vaults (#40); comprehensive build/runtime/security acceptance for this fast code-first wave (**NOT RUN**). Current operations docs cover WAL recovery and TLS identity, but no actual restore test is asserted. `scripts/Build-InterLanReadyQueue.ps1` can identify only new unmerged issue-backed branch diffs; an empty queue is **not** evidence of no engineering backlog.
+
+**Precedence for continuation:** live GitHub main and actual source > current AGENTS/invariants and accepted PRs > current issue-specific handoff > archived P2/C075/C100 snapshots. Preserve the prior C075 PASS result *as a historical snapshot only*; do not transfer it to current integrated main.
+
+---
+
+
 This file is the compact recovery point for continuing the campaign after context loss.
 
 ## Current authority
