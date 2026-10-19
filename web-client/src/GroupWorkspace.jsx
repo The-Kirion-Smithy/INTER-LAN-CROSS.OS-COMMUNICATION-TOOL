@@ -101,7 +101,9 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
     groupsApi.messages(token, selectedId, null, controller.signal)
       .then(page => {
         if (controller.signal.aborted) return;
-        setGroupMessages(mergeGroupMessages([], page?.items));
+        // Realtime may deliver a newer message while the initial GET is in
+        // flight; merging into current state prevents the GET from erasing it.
+        setGroupMessages(previous => mergeGroupMessages(previous, page?.items));
         setMessageCursor(page?.nextAfterMessageId || null);
         setHasNextMessages(Boolean(page?.hasMore));
       })
