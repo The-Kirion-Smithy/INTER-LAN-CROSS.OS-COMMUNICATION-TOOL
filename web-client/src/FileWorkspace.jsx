@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { attachmentsApi } from "./api/attachments.js";
 import { groupsApi } from "./api/groups.js";
-import { api, explainApiError } from "./api/client.js";
+import { api, ApiError, explainApiError } from "./api/client.js";
 import "./FileWorkspace.css";
 
 const mergeFiles = (before, incoming) => {
@@ -145,6 +145,18 @@ export default function FileWorkspace({ session, onSessionLost }) {
     setError("");
     try {
       const content = await attachmentsApi.download(token, file.attachmentId);
+      // Downloaded bytes must match the owner server's authorized, durable
+      // digest before being exposed to the user's filesystem.
+      if (!globalThis.crypto?.subtle ||
+          !/^[0-9a-f]{64}$/i.test(file.sha256 || "")) {
+        throw new ApiError(422, "Attachment integrity verification is unavailable.");
+      }
+      const digest = await crypto.subtle.digest("SHA-256", await content.arrayBuffer());
+      const actual = Array.from(new Uint8Array(digest),
+        byte => byte.toString(16).padStart(2, "0")).join("");
+      if (actual.toLowerCase() !== file.sha256.toLowerCase()) {
+        throw new ApiError(422, "Attachment integrity check failed. Download refused.");
+      }
       const url = URL.createObjectURL(content);
       try {
         const anchor = document.createElement("a");
