@@ -230,7 +230,10 @@ internal sealed class OwnerPanel : UserControl, IDisposable
     {
         if (_configured || _http is null || !_runtime.IsRunning)
             throw new InvalidOperationException("First-time bootstrap is available only on a running unconfigured local server.");
-        if ((_password.Text ?? "").Length < 12 || _password.Text != _confirmation.Text)
+        // Validate and submit one immutable snapshot of the sensitive input.
+        // A TextBox value is nullable and must not be reread after validation.
+        var password = _password.Text ?? string.Empty;
+        if (password.Length < 12 || password != _confirmation.Text)
             throw new ArgumentException("Use a password of at least 12 characters and match both password fields.");
         if (string.IsNullOrWhiteSpace(_serverName.Text) ||
             string.IsNullOrWhiteSpace(_username.Text) ||
@@ -243,7 +246,7 @@ internal sealed class OwnerPanel : UserControl, IDisposable
                 _serverName.Text.Trim(),
                 _username.Text.Trim(),
                 _displayName.Text.Trim(),
-                _password.Text));
+                password));
         response.EnsureSuccessStatusCode();
         var created = await response.Content.ReadFromJsonAsync<BootstrapServerResponse>()
             ?? throw new InvalidDataException("Owner bootstrap response was empty.");
