@@ -83,6 +83,9 @@ export default function FileWorkspace({ session, onSessionLost }) {
     setFiles([]);
     setCursor(null);
     setHasMore(false);
+    // A previous group's success/error must not appear as this scope's result.
+    setNotice("");
+    setError("");
     // A file selected in one scope cannot silently carry into another.
     setSelectedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
