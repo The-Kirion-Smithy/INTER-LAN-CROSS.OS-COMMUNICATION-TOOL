@@ -195,6 +195,9 @@ export default function GroupWorkspace({ session, onSessionLost, realtimeEvent }
   }, [realtimeEvent, token]);
 
   useEffect(() => {
+    // A previous directory fetch may have been aborted when the input was
+    // erased or the selected group changed. Reset its obsolete busy state.
+    setDirectoryBusy(false);
     if (!directoryQuery.trim() || !details) { setDirectoryUsers([]); return; }
     const controller = new AbortController();
     const timer = setTimeout(async () => {
