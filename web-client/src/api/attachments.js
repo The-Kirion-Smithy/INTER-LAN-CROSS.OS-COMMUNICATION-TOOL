@@ -48,7 +48,32 @@ async function binaryRequest(path, { token, method = "GET", file, signal, maxByt
     if (!response.ok) throw new ApiError(response.status, "Attachment request failed (HTTP " + response.status + ").");
     if (method === "POST") return response.json();
     const length = Number(response.headers.get("content-length"));
-    if (Number.isFinite(length) && length > maxBytes) throw new RangeError("Attachment response exceeds allowed size.");
+    if (Number.isFinite(length) && length > maxBytes) {
+      await response.body?.cancel();
+      throw new RangeError("Attachment response exceeds allowed size.");
+    }
+    // Enforce the byte cap while reading, not after materializing an
+    // arbitrarily large response in browser memory.
+    if (response.body && typeof response.body.getReader === "function") {
+      const reader = response.body.getReader();
+      const chunks = [];
+      let total = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          total += value.byteLength;
+          if (total > maxBytes) {
+            await reader.cancel();
+            throw new RangeError("Attachment response exceeds allowed size.");
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return new Blob(chunks, { type: "application/octet-stream" });
+    }
     const blob = await response.blob();
     if (blob.size > maxBytes) throw new RangeError("Attachment response exceeds allowed size.");
     return blob;
