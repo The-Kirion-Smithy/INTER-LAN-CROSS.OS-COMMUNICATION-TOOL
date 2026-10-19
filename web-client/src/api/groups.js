@@ -18,6 +18,11 @@ export const groupsApi = {
     token, method: "PUT", body: { name: name.trim(), topic: topic.trim() || null }
   }),
   events: (token, groupId, signal) => requestJson(groupPath(groupId) + "/events?limit=100", { token, signal }),
+  recent: (token, groupId, beforeMessageId, signal) => requestJson(
+    groupPath(groupId) + "/messages/recent?limit=50" +
+      (beforeMessageId ? "&beforeMessageId=" + validId(beforeMessageId) : ""),
+    { token, signal }
+  ),
   messages: (token, groupId, afterMessageId, signal) => requestJson(
     groupPath(groupId) + "/messages?limit=100" +
       (afterMessageId ? "&afterMessageId=" + validId(afterMessageId) : ""),
