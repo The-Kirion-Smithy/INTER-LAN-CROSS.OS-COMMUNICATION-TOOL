@@ -1,3 +1,5 @@
+> **CURRENT INTEGRATION AUTHORITY — 2026-10-19:** Read live `main` before writing; verified reference merge `d8dc5d600e9948eee1ca02ea0302f7c311e40d6d` (PR #79). The original P2 phase/SHA below is a historical record, **not** current HEAD. P2 direct messaging, P3 group **authority**, browser direct/group UI, and Avalonia owner/direct/group UI are integrated. Group *message* history/fan-out, attachment hosting, Telegram archival and Linux/macOS protected pairing remain outstanding. Begin from actual live `main`, the source itself, `00-HANDOFF/INTERLAN_EXECUTION_STATE.md` and the latest accepted issue/PR facts, not the legacy P2 branch. Historical tests in old documents do not establish acceptance for later integrated code; current sprint verification is NOT RUN unless specific later evidence exists. One real issue/branch/diff per PR; Kirch genuinely opens PRs, contributors keep their own commit authorship.
+
 # INTER-LAN Engineering Authority
 
 Technical Authority: **Kirch Ivan Balite**
