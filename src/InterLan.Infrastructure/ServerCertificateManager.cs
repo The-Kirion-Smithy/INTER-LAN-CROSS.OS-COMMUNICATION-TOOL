@@ -45,10 +45,21 @@ public static class ServerCertificateManager
         // whose private key is backed in a form it can actually use for TLS handshakes.
         // EphemeralKeySet is intentionally avoided because macOS rejected that mode.
         var pfxBytes = pemCertificate.Export(X509ContentType.Pkcs12);
-        var certificate = X509CertificateLoader.LoadPkcs12(
-            pfxBytes,
-            password: null,
-            keyStorageFlags: X509KeyStorageFlags.Exportable);
+        X509Certificate2 certificate;
+        try
+        {
+            certificate = X509CertificateLoader.LoadPkcs12(
+                pfxBytes,
+                password: null,
+                keyStorageFlags: X509KeyStorageFlags.Exportable);
+        }
+        finally
+        {
+            // PKCS#12 contains a copy of the server private key. Once the
+            // certificate is imported, erase the transient managed export,
+            // including when the OS-backed import fails.
+            CryptographicOperations.ZeroMemory(pfxBytes);
+        }
 
         if (!certificate.HasPrivateKey)
         {
