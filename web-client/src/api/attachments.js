@@ -22,7 +22,7 @@ function displayFilename(name) {
   return cleaned || "attachment";
 }
 
-async function binaryRequest(path, { token, method = "GET", file, signal, maxBytes = 10 * 1024 * 1024 } = {}) {
+async function binaryRequest(path, { token, method = "GET", file, signal, maxBytes = 10 * 1024 * 1024, timeoutMs = 120000 } = {}) {
   if (typeof token !== "string" || !token) throw new TypeError("Authenticated session required.");
   if (!path.startsWith("/api/v1/") || path.includes("..")) throw new TypeError("Invalid API path.");
   const headers = { Authorization: "Bearer " + token, Accept: method === "POST" ? "application/json" : "application/octet-stream" };
@@ -33,17 +33,32 @@ async function binaryRequest(path, { token, method = "GET", file, signal, maxByt
     headers["Content-Type"] = "application/octet-stream";
     headers["X-InterLan-Filename"] = displayFilename(file.name);
   }
-  const response = await fetch(path, {
-    method, headers, body: method === "POST" ? file : undefined, signal,
-    cache: "no-store", credentials: "same-origin"
-  });
-  if (!response.ok) throw new ApiError(response.status, "Attachment request failed (HTTP " + response.status + ").");
-  if (method === "POST") return response.json();
-  const length = Number(response.headers.get("content-length"));
-  if (Number.isFinite(length) && length > maxBytes) throw new RangeError("Attachment response exceeds allowed size.");
-  const blob = await response.blob();
-  if (blob.size > maxBytes) throw new RangeError("Attachment response exceeds allowed size.");
-  return blob;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new RangeError("Invalid transfer timeout.");
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", cancel, { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  try {
+    const response = await fetch(path, {
+      method, headers, body: method === "POST" ? file : undefined,
+      signal: controller.signal, cache: "no-store", credentials: "same-origin"
+    });
+    if (!response.ok) throw new ApiError(response.status, "Attachment request failed (HTTP " + response.status + ").");
+    if (method === "POST") return response.json();
+    const length = Number(response.headers.get("content-length"));
+    if (Number.isFinite(length) && length > maxBytes) throw new RangeError("Attachment response exceeds allowed size.");
+    const blob = await response.blob();
+    if (blob.size > maxBytes) throw new RangeError("Attachment response exceeds allowed size.");
+    return blob;
+  } catch (error) {
+    if (timedOut) throw new ApiError(408, "The attachment transfer timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", cancel);
+  }
 }
 
 export const attachmentsApi = {
