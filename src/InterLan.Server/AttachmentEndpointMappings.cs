@@ -43,7 +43,7 @@ public static class AttachmentEndpointMappings
                 context, enrollment, cancellationToken);
             if (principal is null) return Results.Unauthorized();
             // Scoped attachment metadata is not public cacheable content.
-            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers["Cache-Control"] = "no-store";
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             try
             {
@@ -69,7 +69,7 @@ public static class AttachmentEndpointMappings
                 context, enrollment, cancellationToken);
             if (principal is null) return Results.Unauthorized();
             // Never allow shared caches or content sniffing for private blobs.
-            context.Response.Headers.CacheControl = "no-store";
+            context.Response.Headers["Cache-Control"] = "no-store";
             context.Response.Headers["X-Content-Type-Options"] = "nosniff";
             try
             {
