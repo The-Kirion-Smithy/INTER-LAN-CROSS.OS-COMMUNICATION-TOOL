@@ -20,7 +20,21 @@ public static class ServerCertificateManager
         var certificatePath = Path.Combine(dataDirectory, "server-cert.pem");
         var privateKeyPath = Path.Combine(dataDirectory, "server-key.pem");
 
-        if (!File.Exists(certificatePath) || !File.Exists(privateKeyPath))
+        var certificateExists = File.Exists(certificatePath);
+        var privateKeyExists = File.Exists(privateKeyPath);
+
+        // A partially missing pair is an operator recovery incident, not first run.
+        // Silently creating a new pair would rotate the server identity and break
+        // certificate-pinned clients without the owner's explicit decision.
+        if (certificateExists != privateKeyExists)
+        {
+            throw new InvalidOperationException(
+                "Incomplete INTER-LAN server TLS identity: the certificate and " +
+                "private key must be restored together from a trusted backup. " +
+                "Server startup was stopped; no replacement key was generated.");
+        }
+
+        if (!certificateExists)
         {
             Create(certificatePath, privateKeyPath);
         }
