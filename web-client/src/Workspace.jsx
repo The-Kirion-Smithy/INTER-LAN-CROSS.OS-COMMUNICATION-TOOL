@@ -34,6 +34,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
   const [draft, setDraft] = useState("");
   const [outgoing, setOutgoing] = useState(null);
   const [realtimeState, setRealtimeState] = useState("connecting");
+  const [groupRealtimeEvent, setGroupRealtimeEvent] = useState(null);
   const [typing, setTyping] = useState(null);
   const [device, setDevice] = useState(null);
   const [sessions, setSessions] = useState([]);
@@ -126,9 +127,14 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
       token,
       onState: state => setRealtimeState(state),
       onUnauthorized: () => onSessionLost("Realtime authentication was revoked."),
-      onCatchUp: catchUp,
+      onCatchUp: () => {
+        catchUp();
+        setGroupRealtimeEvent({ event: "GroupReconnect", payload: null });
+      },
       onEvent: (event, payload) => {
-        if (event === "MessageCreated" || event === "MessageEdited") {
+        if (event === "GroupMessageCreated" || event === "GroupMembershipRevoked") {
+          setGroupRealtimeEvent({ event, payload });
+        } else if (event === "MessageCreated" || event === "MessageEdited") {
           if (payload?.scopeType?.toLowerCase() === "direct" && payload.scopeId === activeRef.current) {
             setMessages(previous => mergeMessages(previous, [payload]));
           }
@@ -413,7 +419,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
             {search.trim() && !peopleBusy && people.length === 0 && !searchError && <p className="empty-copy">No matching users.</p>}
           </div>}
           {section === "groups" && <div className="sidebar-body"><p className="empty-copy">Group memberships and message history are controlled by the owner server.</p></div>}
-          {section === "files" && <div className="sidebar-body"><p className="empty-copy">Only current group members can list, upload or download stored files.</p></div>}
+          {section === "files" && <div className="sidebar-body"><p className="empty-copy">Only current group members can list, upload or download stored files.</p></div>
           {section === "settings" && <div className="sidebar-body"><p className="empty-copy">Account identity and server session security.</p></div>}
         </aside>
 
@@ -470,7 +476,7 @@ export default function Workspace({ session, serverName, onLogout, onSessionLost
             </form>
           </>}
           {section === "people" && <div className="empty-state"><div className="empty-icon" aria-hidden="true">◎</div><h2>Real user directory</h2><p>Search by name or username to create or open a server-authorized direct conversation.</p></div>}
-          {section === "groups" && <GroupWorkspace session={session} onSessionLost={onSessionLost} />}
+          {section === "groups" && <GroupWorkspace session={session} onSessionLost={onSessionLost} realtimeEvent={groupRealtimeEvent} />}
           {section === "files" && <FileWorkspace session={session} onSessionLost={onSessionLost} />}
           {section === "settings" && <div className="settings-panel">
             <h2>Session & device security</h2><p className="muted">Signed in as {session.displayName || "Approved user"} · {session.role || "Member"} · {serverName}</p>

@@ -5,7 +5,8 @@ import { api, explainApiError } from "../api/client.js";
 const RECORD_SEPARATOR = "\u001e";
 const methods = new Set([
   "MessageCreated", "MessageEdited", "MessageDeleted",
-  "ReceiptUpdated", "TypingChanged", "PresenceChanged"
+  "ReceiptUpdated", "TypingChanged", "PresenceChanged",
+  "GroupMessageCreated", "GroupMembershipRevoked"
 ]);
 
 export function createRealtime({ token, onEvent, onState, onCatchUp, onUnauthorized }) {
