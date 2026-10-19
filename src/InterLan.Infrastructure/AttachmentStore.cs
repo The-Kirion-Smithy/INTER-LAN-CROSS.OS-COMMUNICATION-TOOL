@@ -203,6 +203,89 @@ public sealed class AttachmentStore
         }
     }
 
+    /// <summary>
+    /// Lists committed attachments in one currently authorized scope. Cursor
+    /// membership and list retrieval share a consistent SQLite read snapshot.
+    /// Unscoped legacy rows remain inaccessible.
+    /// </summary>
+    public async Task<AttachmentPageResponse> ListAuthorizedAsync(
+        Guid actor, string scope, Guid scopeId, Guid? beforeAttachmentId,
+        int limit = 50, CancellationToken ct = default)
+    {
+        ValidateScope(scope, scopeId);
+        if (limit is < 1 or > 100)
+            throw new ArgumentOutOfRangeException(nameof(limit));
+
+        await using var connection = _database.OpenConnection();
+        using var transaction = connection.BeginTransaction(deferred: true);
+        await RequireMemberAsync(connection, transaction, actor, scope, scopeId, ct);
+
+        string? beforeUtc = null;
+        string? beforeId = null;
+        if (beforeAttachmentId is { } cursor)
+        {
+            await using var lookup = connection.CreateCommand();
+            lookup.Transaction = transaction;
+            lookup.CommandText =
+                """
+                SELECT created_utc, attachment_id FROM attachments
+                WHERE attachment_id = $cursor AND scope_type = $scope AND scope_id = $id;
+                """;
+            lookup.Parameters.AddWithValue("$cursor", cursor.ToString("D"));
+            lookup.Parameters.AddWithValue("$scope", scope);
+            lookup.Parameters.AddWithValue("$id", scopeId.ToString("D"));
+            await using var reader = await lookup.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+                throw new KeyNotFoundException("Attachment cursor not found in scope.");
+            beforeUtc = reader.GetString(0);
+            beforeId = reader.GetString(1);
+        }
+
+        await using var query = connection.CreateCommand();
+        query.Transaction = transaction;
+        query.CommandText =
+            """
+            SELECT attachment_id, scope_type, scope_id, uploader_user_id,
+                   original_filename, mime_type, byte_size, sha256,
+                   created_utc, archive_state
+            FROM attachments
+            WHERE scope_type = $scope AND scope_id = $id
+              AND ($beforeUtc IS NULL OR created_utc < $beforeUtc
+                   OR (created_utc = $beforeUtc AND attachment_id < $beforeId))
+            ORDER BY created_utc DESC, attachment_id DESC
+            LIMIT $limit;
+            """;
+        query.Parameters.AddWithValue("$scope", scope);
+        query.Parameters.AddWithValue("$id", scopeId.ToString("D"));
+        query.Parameters.AddWithValue("$beforeUtc", (object?)beforeUtc ?? DBNull.Value);
+        query.Parameters.AddWithValue("$beforeId", (object?)beforeId ?? DBNull.Value);
+        query.Parameters.AddWithValue("$limit", limit + 1);
+
+        var items = new List<AttachmentResponse>();
+        await using var page = await query.ExecuteReaderAsync(ct);
+        while (await page.ReadAsync(ct))
+        {
+            items.Add(new AttachmentResponse(
+                Guid.Parse(page.GetString(0)),
+                page.GetString(1),
+                Guid.Parse(page.GetString(2)),
+                Guid.Parse(page.GetString(3)),
+                page.GetString(4),
+                page.GetString(5),
+                page.GetInt64(6),
+                page.GetString(7),
+                DateTimeOffset.Parse(page.GetString(8)),
+                page.GetString(9)));
+        }
+        await page.DisposeAsync();
+        transaction.Commit();
+
+        var hasMore = items.Count > limit;
+        var result = items.Take(limit).ToArray();
+        return new AttachmentPageResponse(
+            result, hasMore && result.Length > 0 ? result[^1].AttachmentId : null, hasMore);
+    }
+
     public async Task<AttachmentResponse> GetAuthorizedAsync(
         Guid actor, Guid attachmentId, CancellationToken ct = default)
     {
