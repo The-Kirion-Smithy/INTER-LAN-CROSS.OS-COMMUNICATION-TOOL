@@ -150,7 +150,14 @@ public sealed class ClientPairingStateStore
         }
     }
 
-    public void Delete(string path)
+    // Kept for callers which cannot yet migrate their signature. The native
+    // desktop should use DeleteAsync to avoid blocking its UI synchronization
+    // context while Secret Service performs asynchronous D-Bus operations.
+    public void Delete(string path) =>
+        DeleteAsync(path, CancellationToken.None).GetAwaiter().GetResult();
+
+    public async Task DeleteAsync(
+        string path, CancellationToken cancellationToken = default)
     {
         var fullPath = Path.GetFullPath(path);
         var keyPath = KeyPath(fullPath);
@@ -170,8 +177,8 @@ public sealed class ClientPairingStateStore
                 {
                     // Fail closed on vault removal failure; do not imply unpair
                     // is locally complete if the protected key still exists.
-                    NativePairingKeyVault.DeleteAsync(fullPath, CancellationToken.None)
-                        .GetAwaiter().GetResult();
+                    await NativePairingKeyVault.DeleteAsync(fullPath, cancellationToken)
+                        .ConfigureAwait(false);
                 }
                 else if (marker.Length != KeySize)
                     throw new InvalidDataException("Unrecognized pairing key sidecar format.");
