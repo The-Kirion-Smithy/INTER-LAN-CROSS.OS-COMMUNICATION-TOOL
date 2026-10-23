@@ -48,10 +48,16 @@ public sealed record ClientPairingState(
 
 public sealed class ClientPairingStateStore
 {
+    public static bool HasPlatformProtectedKeyVault =>
+        OperatingSystem.IsWindows() || NativePairingKeyVault.HasPlatformAdapter;
+
     private const byte FormatVersion = 1;
     private const int KeySize = 32;
     private const int NonceSize = 12;
     private const int TagSize = 16;
+    // Marker contains no key material; key bytes live only in the native vault.
+    private static readonly byte[] NativeVaultMarker =
+        System.Text.Encoding.ASCII.GetBytes("INTERLAN-NATIVE-VAULT-V1\\n");
 
     public static string GetDefaultPath()
     {
@@ -156,12 +162,45 @@ public sealed class ClientPairingStateStore
         }
     }
 
-    public void Delete(string path)
+    // Kept for callers which cannot yet migrate their signature. The native
+    // desktop should use DeleteAsync to avoid blocking its UI synchronization
+    // context while Secret Service performs asynchronous D-Bus operations.
+    public void Delete(string path) =>
+        DeleteAsync(path, CancellationToken.None).GetAwaiter().GetResult();
+
+    public async Task DeleteAsync(
+        string path, CancellationToken cancellationToken = default)
     {
         var fullPath = Path.GetFullPath(path);
-        if (File.Exists(fullPath)) File.Delete(fullPath);
-
         var keyPath = KeyPath(fullPath);
+        if (OperatingSystem.IsWindows())
+        {
+            if (File.Exists(fullPath)) File.Delete(fullPath);
+            if (File.Exists(keyPath)) File.Delete(keyPath);
+            return;
+        }
+
+        if (File.Exists(keyPath))
+        {
+            var marker = File.ReadAllBytes(keyPath);
+            try
+            {
+                if (marker.AsSpan().SequenceEqual(NativeVaultMarker))
+                {
+                    // Fail closed on vault removal failure; do not imply unpair
+                    // is locally complete if the protected key still exists.
+                    await NativePairingKeyVault.DeleteAsync(fullPath, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                else if (marker.Length != KeySize)
+                    throw new InvalidDataException("Unrecognized pairing key sidecar format.");
+                // Pre-vault legacy plaintext key is deletable only after
+                // the caller has performed server-side unpair/revocation.
+            }
+            finally { CryptographicOperations.ZeroMemory(marker); }
+        }
+
+        if (File.Exists(fullPath)) File.Delete(fullPath);
         if (File.Exists(keyPath)) File.Delete(keyPath);
     }
 
@@ -183,11 +222,24 @@ public sealed class ClientPairingStateStore
         byte[]? persistedKey = null;
         try
         {
-            persistedKey = OperatingSystem.IsWindows()
-                ? WindowsDataProtection.Protect(created)
-                : created.ToArray();
-
-            await AtomicWriteAsync(keyPath, persistedKey, cancellationToken);
+            if (OperatingSystem.IsWindows())
+            {
+                persistedKey = WindowsDataProtection.Protect(created);
+                await AtomicWriteAsync(keyPath, persistedKey, cancellationToken);
+            }
+            else
+            {
+                // Never leave a raw AES key next to ciphertext on Unix.
+                await NativePairingKeyVault.StoreAsync(statePath, created, cancellationToken);
+                var readback = await NativePairingKeyVault.ReadAsync(statePath, cancellationToken);
+                try
+                {
+                    if (!CryptographicOperations.FixedTimeEquals(created, readback))
+                        throw new CryptographicException("Native credential vault verification failed.");
+                }
+                finally { CryptographicOperations.ZeroMemory(readback); }
+                await AtomicWriteAsync(keyPath, NativeVaultMarker, cancellationToken);
+            }
             RestrictUnixPermissions(keyPath);
             return created;
         }
@@ -215,11 +267,33 @@ public sealed class ClientPairingStateStore
         var persisted = await File.ReadAllBytesAsync(keyPath, cancellationToken);
         try
         {
-            // Avoid aliasing the persisted buffer before it is scrubbed.
-            // Protected platform key vault support is tracked in #40.
-            var key = OperatingSystem.IsWindows()
-                ? WindowsDataProtection.Unprotect(persisted)
-                : persisted.ToArray();
+            // Windows keeps its historical DPAPI format unchanged.
+            // Unix requires the native-vault marker or a one-time legacy
+            // migration into a verified native vault; no plaintext fallback.
+            byte[] key;
+            if (OperatingSystem.IsWindows())
+                key = WindowsDataProtection.Unprotect(persisted);
+            else if (persisted.AsSpan().SequenceEqual(NativeVaultMarker))
+                key = await NativePairingKeyVault.ReadAsync(statePath, cancellationToken);
+            else if (persisted.Length == KeySize)
+            {
+                // Upgrade the historical Unix raw-key sidecar only when an
+                // actual credential vault can protect and read back the key.
+                // If unavailable, throw; never load an insecure pairing.
+                await NativePairingKeyVault.StoreAsync(statePath, persisted, cancellationToken);
+                var verified = await NativePairingKeyVault.ReadAsync(statePath, cancellationToken);
+                try
+                {
+                    if (!CryptographicOperations.FixedTimeEquals(persisted, verified))
+                        throw new CryptographicException("Legacy pairing vault migration could not be verified.");
+                }
+                finally { CryptographicOperations.ZeroMemory(verified); }
+                await AtomicWriteAsync(keyPath, NativeVaultMarker, cancellationToken);
+                RestrictUnixPermissions(keyPath);
+                key = persisted.ToArray();
+            }
+            else
+                throw new InvalidDataException("Unrecognized Unix pairing key format.");
 
             if (key.Length != KeySize)
             {
